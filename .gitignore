@@ -1,0 +1,104 @@
+# ==============================================
+# Python
+# ==============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# PyInstaller
+*.manifest
+*.spec
+
+# ==============================================
+# 依赖
+# ==============================================
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# ==============================================
+# IDE - VSCode
+# ==============================================
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# ==============================================
+# IDE - PyCharm
+# ==============================================
+.idea/
+*.iml
+out/
+
+# ==============================================
+# IDE - 其他
+# ==============================================
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================================
+# 项目特定
+# ==============================================
+# 宏文件（用户数据）
+宏/
+自动化脚本/
+录制宏/
+*.auto.json
+
+# 配置（用户本地配置）
+webui_param_config.json
+
+# 驱动相关
+Interception/command\ line\ installer/*.exe
+
+# 日志
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.bak
+*.cache
+
+# 录制输出
+输出/
+temp/

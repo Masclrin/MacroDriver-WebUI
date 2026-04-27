@@ -1,0 +1,18 @@
+webui/
+├── index.html → app.js
+│   └── modules/
+│       ├── app-core.js (桶模块)
+│       ├── core/       (state, dom, api, events, text, constants)
+│       ├── editor/     (index, action-model, action-ops, action-form,
+│       │                action-list-render, inline-editor, comment-ops)
+│       ├── macro-bind.js, recorder.js, params.js
+│       ├── dashboard.js, console.js, macro-tree.js
+│       └── [旧版文件: editor.js, automation-*.js] ← 保留未删
+│
+└── automation_editor.html → modules/auto/editor-app.js
+    └── modules/auto/
+        ├── editor-app.js (入口)
+        ├── index.js (桶模块)
+        ├── core.js, nodes.js, events-handlers.js
+        ├── property.js, tools.js, block-editor.js
+        └── macro-utils.js

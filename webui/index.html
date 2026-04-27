@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>宏驱动控制台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-noise"></div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">M</div>
+        <div>
+          <h1>Macro Forge</h1>
+          <p>高精度宏控制台</p>
+        </div>
+      </div>
+
+      <nav class="tab-nav" id="tabNav">
+        <button class="tab-btn active" data-tab="macro">宏执行绑定</button>
+        <button class="tab-btn" data-tab="record">录制与化简</button>
+        <button class="tab-btn" data-tab="editor">宏编辑保存</button>
+        <button class="tab-btn" data-tab="params">全局参数</button>
+        <button class="tab-btn" data-tab="console">全局控制台</button>
+        <button class="tab-btn" data-tab="automation">自动化编辑器</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button id="btnStartListeners" class="primary" title="启动后再次点击可关闭全局监听">启动全局监听</button>
+        <button id="btnGlobalPause" title="快捷键可在全局参数中配置，默认 F8">全局暂停</button>
+        <button id="btnStopAll" class="danger" title="默认快捷键 ESC">停止全部宏</button>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <div class="status-grid">
+          <div class="pill">
+            <span class="pill-label">运行实例</span>
+            <strong id="statActive">0</strong>
+          </div>
+          <div class="pill">
+            <span class="pill-label">全局暂停</span>
+            <strong id="statPaused">否</strong>
+          </div>
+          <div class="pill">
+            <span class="pill-label">录制状态</span>
+            <strong id="statRec">空闲</strong>
+          </div>
+          <div class="pill">
+            <span class="pill-label">动作/轨迹</span>
+            <strong id="statRecCount">0 / 0</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="tab-page" data-tab-page="params">
+        <div class="card">
+          <div class="card-head">
+            <h2>全局参数配置</h2>
+            <div class="inline-actions">
+              <button id="btnReloadParams">刷新参数</button>
+              <button id="btnImportParams">导入参数</button>
+              <button id="btnExportParams">导出参数</button>
+              <button id="btnResetParams" class="danger">恢复默认参数</button>
+              <button id="btnSaveParamsTop" class="primary">保存参数并写入配置</button>
+            </div>
+          </div>
+          <p id="paramsConfigPath" class="hint"></p>
+          <div id="paramsContainer" class="params-container"></div>
+          <div class="inline-actions">
+            <button id="btnToggleDebugParams">显示未开放参数: 关</button>
+            <button id="btnSaveParamsBottom" class="primary">保存参数并写入配置</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-page active" data-tab-page="macro">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <h2>宏文件列表</h2>
+              <input id="macroFilter" type="text" placeholder="输入关键字筛选" />
+            </div>
+            <div class="inline-actions">
+              <button id="btnRefreshMacros">刷新</button>
+              <button id="btnCreateMacro">新建宏</button>
+              <button id="btnDeleteMacro" class="danger">删除宏</button>
+              <button id="btnImportFolder">导入宏文件</button>
+            </div>
+            <ul id="macroList" class="list macro-folder-list"></ul>
+          </div>
+
+          <div class="card">
+            <h2>绑定与执行</h2>
+            <div class="field-row">
+              <label>当前宏</label>
+              <input id="selectedMacroPath" type="text" readonly />
+            </div>
+            <div class="field-row triple">
+              <div>
+                <label>触发键</label>
+                <input id="bindTrigger" type="text" placeholder="如 v / mouse_x1" />
+              </div>
+              <div>
+                <label>重复次数</label>
+                <input id="bindRepeat" type="number" min="1" value="1" />
+              </div>
+              <div>
+                <label>触发模式</label>
+                <select id="bindMode">
+                  <option value="normal">normal</option>
+                  <option value="pause_resume">pause_resume</option>
+                  <option value="hold_pause">hold_pause</option>
+                  <option value="stop_restart">stop_restart</option>
+                  <option value="parallel_trigger">parallel_trigger</option>
+                  <option value="release_stop">release_stop</option>
+                  <option value="release_pause">release_pause</option>
+                </select>
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button id="btnCaptureKey">键盘/鼠标输入采集</button>
+              <button id="btnBindMacro" class="primary">绑定当前宏</button>
+              <button id="btnRunNow">立即触发一次</button>
+            </div>
+
+            <h3>常用执行参数</h3>
+            <div class="field-row triple">
+              <div>
+                <label>倍速执行</label>
+                <input id="macroSpeedFactor" type="number" min="0.05" step="0.05" value="1.00" />
+              </div>
+              <div>
+                <label>随机延迟最小(ms)</label>
+                <input id="macroRandomMin" type="number" step="0.01" value="0" />
+              </div>
+              <div>
+                <label>随机延迟最大(ms)</label>
+                <input id="macroRandomMax" type="number" step="0.01" value="0" />
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button id="btnMacroRandomToggle">随机延迟: 关</button>
+              <button id="btnLowCpuModeToggle" title="将不启用高精度引擎!">CPU低占用: 关</button>
+              <button id="btnTimePeriodToggle" title="启用timeBeginPeriod(1)，功耗略微增加。非低cpu占用模式默认开启，调整无效">时器分辨率(1): 开</button>
+              <button id="btnApplyRuntimeProfile" title="同步参数至全局" class="primary">应用执行参数</button>
+            </div>
+            <p class="hint">执行中的绑定会高亮为绿色。停止后状态会自动刷新，无需再次点击。</p>
+
+            <h3>现有绑定</h3>
+            <ul id="bindingList" class="list compact binding-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-page" data-tab-page="record">
+        <div class="grid-2 grid-main-right">
+          <div class="card">
+            <h2>宏录制控制</h2>
+            <div class="field-row double">
+              <div>
+                <label>启动模式</label>
+                <select id="recordStartMode">
+                  <option value="delayed">delayed</option>
+                  <option value="first_event">first_event</option>
+                </select>
+              </div>
+              <div>
+                <label>延时秒数</label>
+                <input id="recordDelay" type="number" step="0.01" min="0" value="0.20" />
+              </div>
+            </div>
+            <div class="inline-actions">
+              <button id="btnStartRecSvc">启动录制监听</button>
+              <button id="btnArmRec" class="primary">开始录制</button>
+              <button id="btnStopRec">停止录制</button>
+              <button id="btnSaveRec">保存录制</button>
+              <button id="btnClearRec" class="danger">清空缓存</button>
+            </div>
+            <p class="hint">保存名称请至全局参数设置，保存时会输出完整/仅按键/仅轨迹三份宏。</p>
+
+            <hr />
+
+            <h3>宏文件夹（点击填充，拖动到地址栏）</h3>
+            <div class="inline-actions">
+              <button id="btnRefreshRecordMacroBrowser">刷新宏文件夹</button>
+            </div>
+            <ul id="recordMacroList" class="list compact record-macro-list"></ul>
+            <p class="hint">拖动宏文件到右侧输入框可直接填入路径，保存录制前会检查是否覆盖已有内容。</p>
+          </div>
+
+          <div class="card">
+            <h2>轨迹化简与合并</h2>
+
+            <div class="field-row">
+              <label>预设</label>
+              <select id="presetSelect">
+                <option value="fps">fps</option>
+                <option value="desktop">desktop</option>
+                <option value="rpg3d" selected>rpg3d</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>输入宏（包含 view）</label>
+              <input id="simplifyInput" class="record-path-input macro-path-drop-target" type="text" placeholder="宏/录制宏/3d宏_完整.json" />
+            </div>
+            <div class="field-row">
+              <label>化简输出</label>
+              <input id="simplifyOutput" class="record-path-input macro-path-drop-target" type="text" placeholder="宏/录制宏/3d宏_轨迹化简.json" />
+            </div>
+            <button id="btnSimplify" class="primary">执行轨迹化简</button>
+
+            <hr />
+
+            <div class="field-row">
+              <label>动作宏</label>
+              <input id="mergeAction" class="record-path-input macro-path-drop-target" type="text" placeholder="宏/录制宏/3d宏_仅按键.json" />
+            </div>
+            <div class="field-row">
+              <label>轨迹宏</label>
+              <input id="mergeTrack" class="record-path-input macro-path-drop-target" type="text" placeholder="宏/录制宏/3d宏_仅轨迹.json" />
+            </div>
+            <div class="field-row">
+              <label>合并输出</label>
+              <input id="mergeOutput" class="record-path-input macro-path-drop-target" type="text" placeholder="宏/录制宏/3d宏_离线合并.json" />
+            </div>
+            <button id="btnMerge" class="primary">执行离线合并</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-page" data-tab-page="editor">
+        <div class="grid-2 grid-main-right">
+          <div class="card">
+            <h2>文件操作</h2>
+            <h3>动作插入器</h3>
+            <div class="field-row triple">
+              <div>
+                <label>类型</label>
+                <select id="actionType">
+                  <option value="kd">kd</option>
+                  <option value="ku">ku</option>
+                  <option value="md">md</option>
+                  <option value="mu">mu</option>
+                  <option value="wait">wait</option>
+                  <option value="view">view</option>
+                  <option value="loop">loop</option>
+                  <option value="import">import</option>
+                  <option value="note">note</option>
+                </select>
+              </div>
+              <div id="actionArg1Wrap">
+                <label id="actionArg1Label">参数1</label>
+                <input id="actionArg1" type="text" placeholder="key 或 dx,dy 或 子宏路径" />
+              </div>
+              <div id="actionArg2Wrap">
+                <label id="actionArg2Label">参数2</label>
+                <input id="actionArg2" type="text" placeholder="delay/duration(ms)" />
+              </div>
+            </div>
+            <div class="inline-actions"> 
+              <button id="btnUpdateAction">修改当前</button>
+              <button id="btnInsertBelow">下方插入</button>
+              <button id="btnAppendAction">加至末尾</button>
+              <button id="btnDeleteAction" class="danger">删除选中</button>
+            </div>
+            <div class="inline-actions">
+              <button id="btnSaveEditor" class="primary">保存当前宏</button>
+              <button id="btnReloadEditor">重新加载</button>
+            </div>
+
+            <hr />
+
+            <h3>宏文件夹（点击打开，拖动插入 import）</h3>
+            <div class="field-row">
+              <label>目标目录</label>
+              <input id="editorFolder" type="text" value="宏/录制宏" />
+            </div>
+            <div class="field-row">
+              <label>新文件名</label>
+              <input id="editorNewName" type="text" value="新建宏.json" />
+            </div>
+            <div class="inline-actions">
+              <button id="btnEditorCreate">创建空宏</button>
+              <button id="btnEditorRename">重命名当前宏</button>
+              <button id="btnRefreshEditorMacroBrowser">刷新文件夹</button>
+            </div>
+
+            <div class="field-row">
+              <label>重命名新名称</label>
+              <input id="editorRenameName" type="text" placeholder="例如 我的连段.json" />
+            </div>
+            <ul id="editorMacroList" class="list compact editor-macro-list"></ul>
+          </div>
+
+          <div class="card">
+            <h2>可视化动作列表（可拖拽）</h2>
+            <div class="hint-row">
+              <p class="hint">支持 loop 展开/收回、内部动作拖拽重排、拖拽动作进入 loop，双击动作可快速编辑参数。</p>
+              <button id="btnBatchComment" class="mini-btn" title="进入批量注释模式后，点击动作可注释，点击可恢复注释可恢复动作">批量注释: 关</button>
+            </div>
+            <ul id="actionList" class="list action-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-page" data-tab-page="console">
+        <div class="card">
+          <div class="card-head">
+            <h2>Python 端控制台</h2>
+            <div class="inline-actions">
+              <button id="btnClearConsole">清空</button>
+            </div>
+          </div>
+          <pre id="consoleOutput" class="console"></pre>
+        </div>
+      </section>
+
+      <section class="tab-page" data-tab-page="automation" style="padding:0;height:100%">
+        <iframe id="automationFrame" src="automation_editor.html" style="width:100%;height:100%;border:none"></iframe>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
