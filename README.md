@@ -68,7 +68,8 @@
 
 1. **克隆项目**
 
-   ```
+   ```bash
+   https://github.com/Masclrin/MacroDriver-WebUI.git
    ```
 2. **安装依赖**
 
