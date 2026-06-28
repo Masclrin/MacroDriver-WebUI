@@ -1142,14 +1142,34 @@ def execute_graph(graph: ExecGraph, stop_event: threading.Event, breakpoints: se
         ctx.node_logger.enable()
 
     if profile.get("interception_kb") or profile.get("interception_mouse"):
+        # 全局参数优先级高于执行档案: 总开关关闭时, 无论 profile 如何, 都不使用 Interception
+        # 总开关 AND 键盘/鼠标分开关 AND profile 设置, 三者同时为真才启用
         try:
-            ctx.interception_session = InterceptionSession(
-                use_keyboard=bool(profile.get("interception_kb", False)),
-                use_mouse=bool(profile.get("interception_mouse", False)),
-            )
-        except Exception as e:
-            print(f"[新引擎] InterceptionSession 初始化失败，回退 SendInput: {e}")
-            ctx.interception_session = None
+            _old_eng = _get_old_engine()
+            g_use_ic = bool(getattr(_old_eng, "USE_INTERCEPTION", True))
+            g_use_ic_kb = g_use_ic and bool(getattr(_old_eng, "USE_INTERCEPTION_KEYBOARD", True))
+            g_use_ic_mouse = g_use_ic and bool(getattr(_old_eng, "USE_INTERCEPTION_MOUSE", True))
+        except Exception as _e:
+            print(f"[新引擎] 读取旧引擎 Interception 全局参数失败, 仅按 profile 决策: {_e}")
+            g_use_ic = True
+            g_use_ic_kb = True
+            g_use_ic_mouse = True
+
+        use_kb = bool(profile.get("interception_kb", False)) and g_use_ic_kb
+        use_mouse = bool(profile.get("interception_mouse", False)) and g_use_ic_mouse
+
+        if not g_use_ic:
+            print("[新引擎] Interception 总开关已关闭, 键鼠均使用 SendInput")
+
+        if use_kb or use_mouse:
+            try:
+                ctx.interception_session = InterceptionSession(
+                    use_keyboard=use_kb,
+                    use_mouse=use_mouse,
+                )
+            except Exception as e:
+                print(f"[新引擎] InterceptionSession 初始化失败，回退 SendInput: {e}")
+                ctx.interception_session = None
 
     if not graph.entry_node_id:
         print("[新引擎] 错误：未找到入口节点")

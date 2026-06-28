@@ -2102,9 +2102,13 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
             raise RuntimeError("submit_timeline 失败")
 
         # 4. 启动 standby 线程
+        # 分段模式下 (_keep_pressed=True) 传入 keep_pressed=1, 让 C 层退出时不补发抬起,
+        # 保留段间按键状态延续 (如 "kd e → 等2帧 → ku e" 长按);
+        # 最后一段 _keep_pressed=False, 由 C 层 release_all_pressed 统一补发抬起
         use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
-        se.start(core, use_ic)
-        print(f"[standby] 启动: CPU{core}, events={len(events)}, interception={use_ic}, macro={macro_name}")
+        keep_pressed = 1 if _opt.get("_keep_pressed", False) else 0
+        se.start(core, use_ic, keep_pressed)
+        print(f"[standby] 启动: CPU{core}, events={len(events)}, interception={use_ic}, keep_pressed={keep_pressed}, macro={macro_name}")
 
         # 5. 等待完成或停止 (轮询 stop_event, 每 2ms 检查)
         while not stop_event.is_set():
@@ -2220,8 +2224,12 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
     print(f"[standby+RTSS] {macro_name}: {len(segments)}段, 帧边界{n_pts}处")
 
     # 每段调用 _execute_via_standby，传入 _no_release_fallback=True 跳过段内兜底释放
+    # 中间段 _keep_pressed=True 保留按键状态延续; 最后一段 _keep_pressed=False 让 C 层补发抬起
     seg_options = dict(options) if options else {}
     seg_options["_no_release_fallback"] = True
+    seg_options["_keep_pressed"] = True   # 默认中间段保留按键
+
+    n_segs = len(segments)
 
     try:
         for seg_idx, (seg_items, frames_after) in enumerate(segments):
@@ -2229,7 +2237,10 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
                 break
 
             if seg_items:
-                seg_name = f"{macro_name}[段{seg_idx + 1}/{len(segments)}]"
+                seg_name = f"{macro_name}[段{seg_idx + 1}/{n_segs}]"
+                # 最后一段不 keep_pressed, 让 C 层 release_all_pressed 统一补发抬起
+                # 覆盖: 宏以 kd 结尾 / 段内 ESC 中断 / 异常 退出场景
+                seg_options["_keep_pressed"] = (seg_idx < n_segs - 1)
                 ok = _execute_via_standby(seg_items, stop_event, seg_name, seg_options)
                 if not ok:
                     return False

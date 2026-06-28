@@ -105,6 +105,7 @@ static int     g_selected_core     = -1;
 static CRITICAL_SECTION g_exec_lock;         /* 互斥: 保证同一时刻只有一个 standby 宏 */
 static bool    g_exec_lock_inited  = false;
 static volatile LONG  g_lock_held  = 0;      /* 是否持有 g_exec_lock (防止 double-release) */
+static volatile LONG  g_keep_pressed = 0;    /* 1=standby 线程退出时不补发抬起 (分段执行模式, 由 Python 层统一兜底释放) */
 
 /* ========== Interception 全局 ========== */
 static HMODULE g_ic_dll = NULL;
@@ -694,8 +695,15 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
      *    - 正常完成: 宏本身可能以"按下"结尾 (如连招收尾不抬起), 这里统一补抬起
      *    - ESC 中断: 剩余事件被 SKIPPED, 抬起事件可能被跳过 → 必须补发
      *    - 异常: 同上
-     *    抬起幂等, 多发无害; 不补发则会导致左键/修饰键卡死。 */
-    release_all_pressed();
+     *    抬起幂等, 多发无害; 不补发则会导致左键/修饰键卡死。
+     *
+     *    分段执行模式 (g_keep_pressed=1) 下跳过本段补发:
+     *    段间按键状态需要延续到下一段 (如 "kd e → 等2帧 → ku e" 长按),
+     *    若本段退出时补发抬起, 长按会被截断为短按。
+     *    此时由 Python 层 (_execute_via_standby_segmented 的 finally) 统一兜底释放。 */
+    if (!g_keep_pressed) {
+        release_all_pressed();
+    }
 
     /* 6. 通知 Python */
     g_finished = 1;
@@ -787,10 +795,12 @@ static PyObject* py_submit_timeline(PyObject* self, PyObject* args) {
     return PyLong_FromSsize_t(n);
 }
 
-/* start(core_index, use_interception) → int (1=ok, 0=fail) */
+/* start(core_index, use_interception, keep_pressed=0) → int (1=ok, 0=fail)
+ * keep_pressed: 1=分段执行模式, standby 线程退出时不补发抬起, 由 Python 层统一释放 */
 static PyObject* py_start(PyObject* self, PyObject* args) {
     int core, use_ic;
-    if (!PyArg_ParseTuple(args, "ii", &core, &use_ic)) return NULL;
+    int keep_pressed = 0;
+    if (!PyArg_ParseTuple(args, "ii|i", &core, &use_ic, &keep_pressed)) return NULL;
 
     if (!g_timeline || g_event_count <= 0) {
         PyErr_SetString(PyExc_RuntimeError, "no timeline submitted");
@@ -811,6 +821,7 @@ static PyObject* py_start(PyObject* self, PyObject* args) {
     g_selected_core = core;
     g_finished = 0;
     g_stop_flag = 0;
+    InterlockedExchange(&g_keep_pressed, keep_pressed ? 1 : 0);
     if (g_completion_event) ResetEvent(g_completion_event);
 
     if (use_ic && !g_ic_available) {
