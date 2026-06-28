@@ -1,0 +1,65 @@
+webui/
+├── index.html → app.js
+│   └── modules/
+│       ├── app-core.js (桶模块)
+│       ├── core/       (state, dom, api, events, text, constants)
+│       ├── editor/     (index, action-model, action-ops, action-form,
+│       │                action-list-render, inline-editor, comment-ops)
+│       ├── macro-bind.js, recorder.js, params.js
+│       └── dashboard.js, console.js, macro-tree.js
+│
+└── automation_editor.html → modules/auto/app/editor-app.js
+   └── modules/auto/
+       ├── index.js                     (桶模块，统一导出入口)
+       │
+       ├── core/                        ← 核心底层（状态、工具、常量、通知桥接）
+       │   ├── core.js                  (主入口，AutomationCore 对象)
+       │   ├── state.js                 (全局状态 _s 对象)
+       │   ├── utils.js                 (坐标转换、贝塞尔曲线、HTML转义等工具)
+       │   ├── constants.js             (端口名映射、颜色预设等常量)
+       │   ├── notify.js                (图变更通知桥接，解决循环依赖)
+       │   ├── nodes.js                 (节点类型定义、端口映射、拼音搜索、fallback注册)
+       │   └── macro-utils.js           (宏工具函数：解析/克隆/格式化动作)
+       │
+       ├── logic/                       ← 逻辑层（事件处理、图操作）
+       │   ├── events.js                (鼠标/键盘事件处理)
+       │   ├── graph-ops.js             (增删节点、选择、分支端口更新)
+       │   └── events-handlers.js        (自动化事件：高亮/状态/错误/脚本结束回调)
+       │
+       ├── property/                    ← 属性面板层（节点/注释/分组属性编辑）
+       │   ├── index.js                 (入口：render / renderAnnotation / renderGroup)
+       │   ├── utils.js                 (HTML转义、Toast提示)
+       │   ├── renderers.js             (15种字段渲染器 + showWhen判断 + 节点查找)
+       │   ├── interactions.js          (内联字段同步、按键选择器、变量自动补全)
+       │   ├── var-selector.js          (变量选择弹窗、结构化变量收集)
+       │   └── events.js                (全部输入事件绑定：select/input/color/bool/var_list)
+       │
+       ├── editor/                      ← 编辑器层（动作块编辑UI）
+       │   └── block-editor.js          (动作块编辑器：动作列表/表单/行内编辑/注释操作)
+       │
+       ├── pickers/                     ← 选择器层（后端交互弹窗）
+       │   ├── file-pickers.js          (宏/模板/窗口/进程选择器 + 预览)
+       │   └── tools.js                 (坐标拾取、区域框选、截图模式切换)
+       │
+       ├── plugins/                     ← 插件层（动态加载）
+       │   └── plugin-loader.js         (插件列表获取 + 节点注册 + 重载)
+       │
+       ├── render/                      ← 渲染层（DOM 渲染与视口管理）
+       │   ├── node-renderer.js         (节点 DOM 渲染)
+       │   ├── connection-renderer.js   (连线 SVG 渲染与管理)
+       │   ├── annotation-renderer.js   (注释渲染)
+       │   ├── group-renderer.js        (分组渲染)
+       │   └── viewport.js              (视口缩放/平移/小地图)
+       │
+       ├── ui/                          ← UI 组件层（界面交互）
+       │   ├── sidebar.js               (侧边栏伸缩/拖动 + 全屏 + 视图适配 + 缩略图)
+       │   ├── ui-utils.js              (撤销管理器 + 执行状态 + 状态栏)
+       │   ├── var-panel.js             (变量面板全部功能：搜索/筛选/复制/dock)
+       │   ├── toolbox-renderer.js      (工具箱渲染 + 拖拽添加节点)
+       │   └── context-menu.js          (右键菜单 + 复制粘贴 + 访问器)
+       │
+       └── app/                         ← 应用层（入口、状态、配置、通知）
+           ├── editor-app.js            (主入口，initEditor + 全局桥接)
+           ├── editor-state.js          (共享可变状态 + setter 函数)
+           ├── config.js                (工具箱分类 + 热键配置)
+           └── toast.js                 (Toast 通知组件)

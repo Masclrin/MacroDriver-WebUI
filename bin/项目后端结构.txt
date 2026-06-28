@@ -1,0 +1,69 @@
+d:\Rin\宏驱动 webui 2.15\
+├── core/                          # 共享基础层（冻结）
+│   ├── __init__.py
+│   ├── paths.py                   # BASE_DIR, MACRO_ROOT 统一路径
+│   ├── response.py                # ok(), fail() 统一响应格式
+│   ├── console_service.py         # RingConsole, TeeStream
+│   └── param_helpers.py           # coerce_value, friendly_value, resolve_attr_target
+│
+├── engine/                        # 宏执行引擎模块
+│   ├── __init__.py
+│   ├── precision.py               # 高精度定时器 (原 precision_engine_v5.py)
+│   ├── input_sendinput.py         # SendInput 输入原语 (原 input_primitives.py)
+│   ├── input_interception.py      # Interception 驱动 (原 interception_input_v2.py)
+│   └── coordinate.py              # 坐标解析器 (原 coordinate_resolver.py)
+│
+├── recorder/                      # 录制模块
+│   ├── __init__.py
+│   ├── recorder_3d.py             # 3D宏录制器 (原 宏录制V2.1_3D.py)
+│   ├── trajectory_lib.py          # 轨迹化简库 (原 trajectory_simplify_lib.py)
+│   └── simplify_tool.py           # 离线化简合并 (原 轨迹化简合并工具.py)
+│
+├── macro_io/                      # 宏文件I/O模块
+│   ├── __init__.py
+│   ├── parser.py                  # 宏解析/序列化 + MacroFileApiMixin
+│   └── tree.py                    # 宏树构建
+│
+├── automation/                    # 自动化图引擎模块
+│   ├── __init__.py
+│   ├── compiler.py                # 图解析器 (ExecNode, ExecGraph, parse_graph)
+│   ├── engine.py                  # 执行核心 (ExecContext, TaskPool, execute_graph)
+│   ├── registry.py                # PluginRegistry 类 + register_builtin_nodes()
+│   ├── handlers/                  # 节点处理器（按类别拆分）
+│   │   ├── __init__.py            # 统一注册入口
+│   │   ├── action.py              # 鼠标点击/按键/滚轮/文本输入/等待/移动
+│   │   ├── control.py             # 条件分支/循环/调用脚本/等待条件/跳转/序列检测/状态机
+│   │   ├── detection.py           # 颜色检测/OCR/图像匹配/屏幕状态
+│   │   ├── variable.py            # 变量设置/数学运算/比较/字符串/类型转换
+│   │   ├── preset.py              # 点击坐标/找图点击/读取数字文本
+│   │   ├── utility.py             # 常量/数学函数/逻辑/比较/字符串操作/条件/延迟
+│   │   └── monitor.py             # 颜色监视/OCR监视/定时器
+│   ├── nodes/                     # 节点定义（按类别拆分）
+│   │   ├── __init__.py
+│   │   ├── action.py              # 7个动作节点定义
+│   │   ├── control.py             # 9个控制流节点定义
+│   │   ├── detection.py           # 4个检测节点定义
+│   │   ├── variable.py            # 5个变量节点定义
+│   │   ├── preset.py              # 3个预设节点定义
+│   │   ├── utility.py             # 12个工具节点定义
+│   │   └── monitor.py             # 3个监视节点定义
+│   └── detection/                 # 屏幕检测子包
+│       ├── __init__.py
+│       ├── capture.py             # 截图模块
+│       ├── color.py               # 颜色检测
+│       └── ocr.py                 # OCR引擎
+│
+├── bridge/                        # API桥接层
+│   ├── __init__.py
+│   ├── base.py                    # MacroBridgeBase 基类（初始化+通用方法）
+│   ├── metadata.py                # 参数元数据 (SECTION_META, PARAM_DOCS, PARAM_SCHEMA)
+│   ├── params_api.py              # ParamsApiMixin（使用 core/ 共享函数）
+│   ├── recorder_api.py            # RecorderApiMixin
+│   ├── macro_binding_api.py       # MacroBindingApiMixin
+│   ├── listener_api.py            # ListenerApiMixin
+│   ├── macro_simplify_api.py      # MacroSimplifyApiMixin
+│   └── automation_api.py          # AutomationApiMixin
+│
+├── webui_app.py                   # 精简入口（从 193行 → 67行）
+├── webui/                         # 前端（保持现有结构）
+└── webui_backend/                 # 旧代码（保留兼容，可逐步移除）

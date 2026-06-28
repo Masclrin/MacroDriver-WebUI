@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(py *)",
+      "Read(//c/Users/某呆/AppData/Local/Programs/Python/**)",
+      "Read(//c/Users/**)",
+      "Bash(/c/Users/某呆/Documents/tools/fangtiaomiao/python.exe *)",
+      "Bash(\"C:/Users/某呆/Documents/tools/fangtiaomiao/python.exe\" -c \"import ast; ast.parse\\(open\\('宏执行框架3.2.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python *)"
+    ]
+  }
+}

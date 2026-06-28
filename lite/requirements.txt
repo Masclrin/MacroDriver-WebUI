@@ -1,0 +1,2 @@
+pynput>=1.7.7
+pywebview>=5.0.0

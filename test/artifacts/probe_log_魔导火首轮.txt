@@ -1,0 +1,43 @@
+[探针] 已加载预期时间轴: 83 步
+        最小间隔: 525.0us / 最大间隔: 1743740.0us / 总时长: 16.127s
+[探针] 未设置过滤键，将接受所有键盘事件（VK=0的Interception事件也会被捕获）
+[宏生成] 事件数调整为 80（必须是 4 的倍数）
+[宏生成] 已生成: H:\宏驱动 webui 3.1\宏\RawInput探针测试宏.json
+          按键: F13/F14 交替 | 间隔: 1.0ms | 事件数: 80
+          循环: 20 次 × 4 步 = 80 事件
+
+============================================================
+Raw Input 探针 — 宏延迟测试
+按键:  | 间隔: 1.0ms | 事件: 83
+循环步数: 1 | 跳过分析: 4 事件
+CSV: H:\宏驱动 webui 3.1\test\artifacts\probe_result_魔导火首轮.csv
+============================================================
+
+请在新终端中运行以下命令来执行测试宏：
+  cd "H:\宏驱动 webui 3.1\test"
+  python 运行测试宏.py --interval-ms 1.0 --events 83
+
+[探针] Raw Input 注册成功 (RIDEV_INPUTSINK)，窗口句柄: 11342756
+[探针] 结构体大小: RAWINPUTHEADER=24, RAWKEYBOARD=16, RAWINPUT=40
+[探针] 已启动，监听按键: 全部键盘事件
+[探针] QPC 频率: 10000000 Hz
+[探针] 预期事件: 83 | 循环步数: 1 | 预期间隔: 80000us
+[探针] 等待宏事件... (Ctrl+C 停止)
+
+StopReason: 达到预期事件数 (83)
+capturedEvents=83 macroEvents=83 expectedEvents=83 droppedOrExtraEvents=0
+captureComplete=true captureCompleteness=100.000% completeLoops=83 partialLoopEvents=0
+analysisSkipEvents=4 metricEvents=79 metricCompleteLoops=79 metricPartialLoopEvents=0
+StartupLatency=609388.000us
+actualIntervalUs count=78 actualIntervalMin=376.500us actualIntervalMax=1743628.500us actualIntervalRange=1743252.000us p50=69476.700us p95=996672.500us p99=1743628.500us p99.9=1743628.500us
+intervalErrorUs count=78 intervalErrorMin=8.400us intervalErrorMax=843.900us intervalErrorRange=835.500us p50=91.400us p95=519.300us p99=843.900us p99.9=843.900us
+intervalThresholds over2msCount=77 over5msCount=77
+cumulativeDriftAbs count=79 p50=610046.600us p95=610142.700us p99=610159.600us p99.9=610159.600us max=610159.600us
+cumulativeDriftSigned mean=-610004.762us
+intervalErrorAbs count=78 p50=91.400us p95=519.300us p99=843.900us p99.9=843.900us max=843.900us
+
+CSV 已保存: H:\宏驱动 webui 3.1\test\artifacts\probe_result_魔导火首轮.csv
+
+============================================================
+测试完成
+============================================================

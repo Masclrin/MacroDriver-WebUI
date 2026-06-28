@@ -1,0 +1,2407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自动化脚本编辑器 V5.0</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/css/litegraph.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ===== CSS 变量 / 深色主题 ===== */
+:root {
+  --bg-deepest: #0a0e14;
+  --bg-deep: #0d1117;
+  --bg-base: #131920;
+  --bg-raised: #1a2230;
+  --bg-surface: #1f2937;
+  --bg-hover: #263040;
+  --bg-active: #2d3a4a;
+  --border: #2a3444;
+  --border-light: #344155;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #ffffffff;
+  --accent-hover: #34d399;
+  --accent-dim: rgba(16,185,129,0.15);
+  --danger: #ef4444;
+  --danger-dim: rgba(239,68,68,0.15);
+  --warning: #f59e0b;
+  --warning-dim: rgba(245,158,11,0.15);
+  --node-action: #22c55e;
+  --node-detection: #eab308;
+  --node-control: #a855f7;
+  --node-script: #3b82f6;
+  --node-monitor: #06b6d4;
+  --node-variable: #f97316;
+  --port-flow: #94a3b8;
+  --port-bool: #ef4444;
+  --port-number: #22c55e;
+  --port-string: #60a5fa;
+  --port-any: #94a3b8;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.6);
+  --font-ui: 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --toolbar-h: 44px;
+  --statusbar-h: 26px;
+  --toolbox-w: 220px;
+  --property-w: 280px;
+  --transition-fast: 120ms ease;
+}
+
+/* ===== 基础重置 ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-deepest);
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+input, select, textarea, button { font-family: inherit; font-size: inherit; }
+button { cursor: pointer; border: none; background: none; color: inherit; }
+
+/* ===== 页面骨架 ===== */
+#automation-page {
+  display: flex; flex-direction: column;
+  width: 100%; height: 100vh;
+  background: var(--bg-deepest);
+}
+
+/* ===== 顶部工具栏 ===== */
+#auto-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  height: var(--toolbar-h); min-height: var(--toolbar-h);
+  padding: 0 12px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border);
+  z-index: 100;
+  gap: 12px;
+}
+.toolbar-group { display: flex; align-items: center; gap: 6px; }
+.toolbar-group.center { flex: 1; justify-content: center; gap: 10px; }
+
+.tb-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; border-radius: var(--radius-md);
+  font-size: 12px; font-weight: 500;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.tb-btn.primary {
+  background: var(--accent); color: #000;
+}
+.tb-btn.primary:hover { background: var(--accent-hover); }
+.tb-btn.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+.tb-btn.secondary {
+  background: var(--bg-surface); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.tb-btn.secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tb-btn.secondary:disabled { opacity: 0.35; cursor: not-allowed; }
+.tb-btn.danger { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
+.tb-btn.danger:hover { background: rgba(239,68,68,0.25); }
+.tb-btn.danger:disabled { opacity: 0.35; cursor: not-allowed; }
+.tb-btn i { font-size: 11px; }
+
+/* 状态指示器 */
+#auto-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 600;
+  font-family: var(--font-mono);
+  background: var(--bg-surface); border: 1px solid var(--border);
+  color: var(--text-muted); letter-spacing: 0.5px;
+}
+#auto-status .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-muted);
+  transition: background var(--transition-fast);
+}
+#auto-status[data-state="running"] { color: var(--accent); border-color: rgba(16,185,129,0.3); background: var(--accent-dim); }
+#auto-status[data-state="running"] .dot { background: var(--accent); animation: pulse-dot 1.2s ease infinite; }
+#auto-status[data-state="paused"] { color: var(--warning); border-color: rgba(245,158,11,0.3); background: var(--warning-dim); }
+#auto-status[data-state="paused"] .dot { background: var(--warning); animation: pulse-dot 2s ease infinite; }
+#auto-status[data-state="error"] { color: var(--danger); border-color: rgba(239,68,68,0.3); background: var(--danger-dim); }
+#auto-status[data-state="error"] .dot { background: var(--danger); }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ===== 主体三栏 ===== */
+#auto-main {
+  flex: 1; display: flex; overflow: hidden;
+  position: relative;
+}
+
+/* ===== 左侧工具箱 ===== */
+#auto-toolbox {
+  width: var(--toolbox-w); min-width: var(--toolbox-w);
+  background: var(--bg-deep);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  z-index: 50;
+}
+.toolbox-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.toolbox-search input {
+  width: 100%; padding: 6px 8px 6px 30px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); color: var(--text-primary);
+  outline: none; font-size: 12px;
+  transition: border-color var(--transition-fast);
+}
+.toolbox-search input:focus { border-color: var(--accent); }
+.toolbox-search { position: relative; }
+.toolbox-search i {
+  position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; color: var(--text-muted); pointer-events: none;
+}
+
+#toolbox-categories {
+  flex: 1; overflow-y: auto; padding: 4px 0;
+}
+
+.toolbox-category { margin-bottom: 2px; }
+.category-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; cursor: pointer; user-select: none;
+  transition: background var(--transition-fast);
+}
+.category-header:hover { background: var(--bg-raised); }
+.category-header .cat-dot {
+  width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+}
+.category-header .cat-name {
+  flex: 1; font-size: 12px; font-weight: 500; color: var(--text-secondary);
+}
+.category-header .cat-count {
+  font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);
+}
+.category-header .cat-arrow {
+  font-size: 9px; color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+.category-header.collapsed .cat-arrow { transform: rotate(-90deg); }
+
+.category-nodes { padding: 2px 0; }
+.category-header.collapsed + .category-nodes { display: none; }
+
+.toolbox-node-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px 5px 32px; cursor: grab;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+.toolbox-node-item:hover { background: var(--bg-hover); }
+.toolbox-node-item:active { cursor: grabbing; background: var(--bg-active); }
+.toolbox-node-item i { font-size: 11px; color: var(--text-muted); width: 14px; text-align: center; }
+.toolbox-node-item span { font-size: 12px; color: var(--text-secondary); }
+.toolbox-node-item.hidden { display: none; }
+
+/* ===== 中间画布区域 ===== */
+#canvas-container {
+  flex: 1; position: relative; overflow: hidden;
+  background: var(--bg-deepest);
+}
+#canvas-container canvas { display: block; }
+
+/* 小地图 */
+#minimap {
+  position: absolute; bottom: 12px; right: 12px;
+  width: 160px; height: 100px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  opacity: 0.75;
+  transition: opacity var(--transition-fast);
+  overflow: hidden;
+  pointer-events: none;
+}
+#minimap:hover { opacity: 0.95; pointer-events: auto; }
+#minimap canvas { width: 100%; height: 100%; }
+
+/* 画布网格叠加（用CSS背景实现微弱网格感） */
+#canvas-container::before {
+  content: '';
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  opacity: 0.03;
+  background-image:
+    linear-gradient(var(--text-muted) 1px, transparent 1px),
+    linear-gradient(90deg, var(--text-muted) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ===== 右侧属性面板 ===== */
+#auto-property-panel {
+  width: var(--property-w); min-width: var(--property-w);
+  background: var(--bg-deep);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  z-index: 50;
+}
+.panel-header {
+  padding: 10px 14px;
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-header i { font-size: 11px; color: var(--text-muted); }
+
+#property-panel-content {
+  flex: 1; overflow-y: auto; padding: 0;
+}
+
+.empty-hint {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; gap: 8px; color: var(--text-muted);
+  font-size: 12px; text-align: center; padding: 20px;
+}
+.empty-hint i { font-size: 28px; opacity: 0.3; }
+
+/* 属性面板 - 节点标题区 */
+.prop-node-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.prop-node-color {
+  width: 4px; height: 28px; border-radius: 2px; flex-shrink: 0;
+}
+.prop-node-title {
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+}
+.prop-node-type {
+  font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
+}
+
+/* 属性面板 - 分组 */
+.prop-group {
+  border-bottom: 1px solid var(--border);
+}
+.prop-group-header {
+  padding: 8px 14px;
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.3px;
+  cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+  transition: background var(--transition-fast);
+}
+.prop-group-header:hover { background: var(--bg-raised); }
+.prop-group-header i.arrow { font-size: 8px; transition: transform var(--transition-fast); }
+.prop-group-header.collapsed i.arrow { transform: rotate(-90deg); }
+.prop-group-header.collapsed + .prop-group-body { display: none; }
+
+.prop-group-body { padding: 6px 14px 10px; display: flex; flex-direction: column; gap: 8px; }
+
+/* 属性面板 - 字段 */
+.prop-field { display: flex; flex-direction: column; gap: 3px; }
+.prop-field-label {
+  font-size: 11px; color: var(--text-muted); font-weight: 500;
+  display: flex; align-items: center; gap: 4px;
+}
+.prop-field-label .var-badge {
+  font-size: 9px; padding: 1px 4px; border-radius: 2px;
+  background: var(--node-variable); color: #000; font-weight: 700;
+  font-family: var(--font-mono);
+}
+.prop-field input[type="text"],
+.prop-field input[type="number"],
+.prop-field select,
+.prop-field textarea {
+  padding: 5px 8px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  outline: none; font-size: 12px;
+  transition: border-color var(--transition-fast);
+}
+.prop-field input:focus, .prop-field select:focus, .prop-field textarea:focus {
+  border-color: var(--accent);
+}
+.prop-field input[type="number"] { font-family: var(--font-mono); }
+.prop-field select {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+  padding-right: 24px;
+}
+.prop-field textarea { resize: vertical; min-height: 48px; }
+.prop-field input[type="checkbox"] {
+  width: 14px; height: 14px; accent-color: var(--accent); cursor: pointer;
+}
+.prop-field .checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.prop-field .checkbox-row label { font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+
+/* 坐标输入行 */
+.coord-row {
+  display: flex; gap: 6px; align-items: center;
+}
+.coord-row .coord-field { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.coord-row .coord-field label {
+  font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);
+}
+.coord-row .coord-field input {
+  width: 100%; padding: 4px 6px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 12px; outline: none;
+  transition: border-color var(--transition-fast);
+}
+.coord-row .coord-field input:focus { border-color: var(--accent); }
+.coord-row .coord-field input[step="0.01"]::placeholder { color: var(--text-muted); font-size: 10px; }
+
+/* 区域输入 (4个值) */
+.region-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+}
+.region-grid .region-cell { display: flex; flex-direction: column; gap: 1px; }
+.region-grid .region-cell label {
+  font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);
+}
+.region-grid .region-cell input {
+  padding: 4px 6px; background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 12px; outline: none;
+  transition: border-color var(--transition-fast);
+}
+.region-grid .region-cell input:focus { border-color: var(--accent); }
+
+/* 按钮行 */
+.prop-btn-row { display: flex; gap: 6px; margin-top: 4px; }
+.prop-btn {
+  flex: 1; padding: 5px 8px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 500;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  transition: all var(--transition-fast);
+}
+.prop-btn.outline {
+  border: 1px solid var(--border); color: var(--text-secondary);
+  background: transparent;
+}
+.prop-btn.outline:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--border-light); }
+.prop-btn.accent-outline {
+  border: 1px solid rgba(16,185,129,0.3); color: var(--accent);
+  background: transparent;
+}
+.prop-btn.accent-outline:hover { background: var(--accent-dim); }
+.prop-btn i { font-size: 10px; }
+
+/* 预览区 */
+.prop-preview {
+  margin-top: 4px; padding: 8px;
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); text-align: center;
+  min-height: 40px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-muted);
+}
+.prop-preview img { max-width: 100%; border-radius: var(--radius-sm); }
+.prop-preview .preview-value { font-family: var(--font-mono); font-size: 13px; }
+
+/* ===== 底部状态栏 ===== */
+#auto-statusbar {
+  height: var(--statusbar-h); min-height: var(--statusbar-h);
+  padding: 0 14px;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px;
+  font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono);
+  z-index: 100;
+}
+#auto-statusbar span { display: inline-flex; align-items: center; gap: 4px; }
+#auto-statusbar b { color: var(--text-secondary); font-weight: 600; }
+#stat-cursor { margin-left: auto; }
+
+/* ===== 坐标拾取覆盖层 ===== */
+#pick-overlay {
+  display: none; position: fixed; inset: 0;
+  z-index: 9999; cursor: crosshair;
+  background: rgba(0,0,0,0.35);
+}
+#pick-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#pick-info {
+  position: absolute; top: 12px; left: 12px;
+  padding: 8px 12px; border-radius: var(--radius-md);
+  background: rgba(0,0,0,0.75); color: #fff;
+  font-size: 13px; font-family: var(--font-mono);
+  backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1);
+  pointer-events: none;
+}
+#pick-info .pick-label { font-size: 10px; color: var(--text-muted); margin-bottom: 2px; font-family: var(--font-ui); }
+#pick-info .pick-value { font-size: 15px; font-weight: 600; }
+#pick-cancel {
+  position: absolute; top: 12px; right: 12px;
+  padding: 6px 14px; border-radius: var(--radius-md);
+  background: rgba(0,0,0,0.7); color: var(--text-secondary);
+  font-size: 12px; border: 1px solid rgba(255,255,255,0.1);
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+}
+#pick-cancel:hover { background: var(--danger-dim); color: var(--danger); border-color: rgba(239,68,68,0.3); }
+
+/* ===== 模态框 ===== */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 8000;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fade-in 150ms ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-content {
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: modal-slide-in 200ms ease;
+}
+@keyframes modal-slide-in { from { opacity: 0; transform: translateY(16px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.modal-header span { font-size: 14px; font-weight: 600; }
+.modal-close {
+  width: 28px; height: 28px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); transition: all var(--transition-fast);
+}
+.modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.modal-body { flex: 1; overflow: auto; padding: 18px; }
+.modal-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px; border-top: 1px solid var(--border);
+}
+
+/* ===== Toast 通知 ===== */
+#toast-container {
+  position: fixed; top: 56px; right: 16px; z-index: 10000;
+  display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none;
+}
+.toast {
+  padding: 8px 14px; border-radius: var(--radius-md);
+  font-size: 12px; color: var(--text-primary);
+  background: var(--bg-raised); border: 1px solid var(--border);
+  box-shadow: var(--shadow-md); pointer-events: auto;
+  animation: toast-in 200ms ease;
+  display: flex; align-items: center; gap: 8px;
+  max-width: 320px;
+}
+.toast.success { border-color: rgba(16,185,129,0.4); }
+.toast.success i { color: var(--accent); }
+.toast.error { border-color: rgba(239,68,68,0.4); }
+.toast.error i { color: var(--danger); }
+.toast.warning { border-color: rgba(245,158,11,0.4); }
+.toast.warning i { color: var(--warning); }
+.toast.info i { color: var(--port-string); }
+@keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+.toast-exit { animation: toast-out 150ms ease forwards; }
+@keyframes toast-out { to { opacity: 0; transform: translateX(20px); } }
+
+/* ===== 右键菜单 ===== */
+#context-menu {
+  display: none; position: fixed; z-index: 9000;
+  min-width: 160px; padding: 4px 0;
+  background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+}
+#context-menu .ctx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px; cursor: pointer; font-size: 12px; color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+#context-menu .ctx-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+#context-menu .ctx-item i { width: 14px; text-align: center; font-size: 11px; color: var(--text-muted); }
+#context-menu .ctx-item.danger { color: var(--danger); }
+#context-menu .ctx-item.danger i { color: var(--danger); }
+#context-menu .ctx-sep { height: 1px; margin: 4px 8px; background: var(--border); }
+#context-menu .ctx-item .shortcut {
+  margin-left: auto; font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);
+}
+
+/* ===== LiteGraph 深色主题覆盖 ===== */
+.litegraph.litegraph-backdrop {
+  background: var(--bg-deepest) !important;
+}
+.litegraph .lgraphcanvas {
+  background: var(--bg-deepest) !important;
+}
+.litegraph .litenode {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-sm) !important;
+  font-family: var(--font-ui) !important;
+}
+.litegraph .litenode.selected {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-md) !important;
+}
+.litegraph .litenode .node-title {
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+  border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+}
+.litegraph .litenode .node-box {
+  padding: 6px !important;
+}
+.litegraph .litenode input, .litegraph .litenode select {
+  font-size: 11px !important;
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+}
+.litegraph .litenode input:focus {
+  border-color: var(--accent) !important;
+}
+.litegraph .litenode .node-slot {
+  font-size: 11px !important;
+}
+/* 端口颜色 */
+.litegraph .litenode .slot.flow .slot-dot { background: var(--port-flow) !important; }
+.litegraph .litenode .slot.boolean .slot-dot { background: var(--port-bool) !important; }
+.litegraph .litenode .slot.number .slot-dot { background: var(--port-number) !important; }
+.litegraph .litenode .slot.string .slot-dot { background: var(--port-string) !important; }
+.litegraph .litenode .slot._1 .slot-dot,
+.litegraph .litenode .slot.any .slot-dot { background: var(--port-any) !important; }
+/* 连线颜色 */
+.litegraph .litegraph.litegraph-backdrop .litegraph-canvas-container .connection.flow { stroke: var(--port-flow) !important; }
+.litegraph .litegraph.litegraph-backdrop .litegraph-canvas-container .connection.boolean { stroke: var(--port-bool) !important; }
+.litegraph .litegraph.litegraph-backdrop .litegraph-canvas-container .connection.number { stroke: var(--port-number) !important; }
+.litegraph .litegraph.litegraph-backdrop .litegraph-canvas-container .connection.string { stroke: var(--port-string) !important; }
+
+/* 节点执行高亮 */
+.litegraph .litenode.node-executing {
+  animation: node-glow 0.6s ease infinite alternate;
+}
+@keyframes node-glow {
+  from { box-shadow: 0 0 0 1px var(--accent), 0 0 8px rgba(16,185,129,0.3); }
+  to   { box-shadow: 0 0 0 2px var(--accent), 0 0 16px rgba(16,185,129,0.5); }
+}
+.litegraph .litenode.node-check-pass {
+  box-shadow: 0 0 0 2px var(--node-action), 0 0 12px rgba(34,197,94,0.4) !important;
+}
+.litegraph .litenode.node-check-fail {
+  box-shadow: 0 0 0 2px var(--danger), 0 0 12px rgba(239,68,68,0.4) !important;
+}
+.litegraph .litenode.node-error {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 1px var(--danger) !important;
+}
+
+/* ===== 动画 ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 主页面 ===== -->
+<div id="automation-page">
+
+  <!-- 顶部工具栏 -->
+  <header id="auto-toolbar" role="toolbar" aria-label="编辑器工具栏">
+    <div class="toolbar-group">
+      <button class="tb-btn primary" id="btn-run" title="运行脚本 (F5)">
+        <i class="fa-solid fa-play"></i> 运行
+      </button>
+      <button class="tb-btn danger" id="btn-stop" disabled title="停止运行 (ESC)">
+        <i class="fa-solid fa-stop"></i> 停止
+      </button>
+      <button class="tb-btn secondary" id="btn-pause" disabled title="暂停/继续 (F6)">
+        <i class="fa-solid fa-pause"></i> 暂停
+      </button>
+    </div>
+    <div class="toolbar-group center">
+      <div id="auto-status" data-state="idle">
+        <span class="dot"></span>
+        <span class="label">IDLE</span>
+      </div>
+    </div>
+    <div class="toolbar-group">
+      <button class="tb-btn secondary" id="btn-export" title="导出为 .auto.json">
+        <i class="fa-solid fa-download"></i> 导出
+      </button>
+      <button class="tb-btn secondary" id="btn-import" title="导入 .auto.json">
+        <i class="fa-solid fa-upload"></i> 导入
+      </button>
+      <button class="tb-btn secondary" id="btn-save" title="保存脚本 (Ctrl+S)">
+        <i class="fa-solid fa-floppy-disk"></i> 保存
+      </button>
+    </div>
+  </header>
+
+  <!-- 主体三栏 -->
+  <main id="auto-main">
+
+    <!-- 左侧工具箱 -->
+    <aside id="auto-toolbox" role="complementary" aria-label="节点工具箱">
+      <div class="toolbox-search">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="node-search-input" placeholder="搜索节点..." aria-label="搜索节点">
+      </div>
+      <nav id="toolbox-categories" aria-label="节点分类">
+        <!-- 由 JS 动态生成 -->
+      </nav>
+    </aside>
+
+    <!-- 中间画布 -->
+    <section id="canvas-container" role="main" aria-label="节点编辑画布">
+      <canvas id="node-canvas"></canvas>
+      <div id="minimap" aria-hidden="true">
+        <canvas id="minimap-canvas"></canvas>
+      </div>
+    </section>
+
+    <!-- 右侧属性面板 -->
+    <aside id="auto-property-panel" role="complementary" aria-label="属性面板">
+      <div class="panel-header">
+        <i class="fa-solid fa-sliders"></i> 属性面板
+      </div>
+      <div id="property-panel-content">
+        <div class="empty-hint">
+          <i class="fa-regular fa-hand-pointer"></i>
+          <span>选择节点查看属性</span>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- 底部状态栏 -->
+  <footer id="auto-statusbar" role="status" aria-label="编辑器状态">
+    <span>节点: <b id="stat-nodes">0</b></span>
+    <span>连线: <b id="stat-connections">0</b></span>
+    <span>监视器: <b id="stat-monitors">0</b></span>
+    <span>变量: <b id="stat-variables">0</b></span>
+    <span id="stat-cursor">坐标: 0, 0</span>
+  </footer>
+
+</div>
+
+<!-- 坐标拾取覆盖层 -->
+<div id="pick-overlay" role="dialog" aria-label="坐标拾取">
+  <canvas id="pick-canvas"></canvas>
+  <div id="pick-info">
+    <div class="pick-label" id="pick-mode-label">屏幕坐标</div>
+    <div class="pick-value" id="pick-coord-value">0, 0</div>
+  </div>
+  <button id="pick-cancel">取消 (ESC)</button>
+</div>
+
+<!-- 右键菜单 -->
+<div id="context-menu" role="menu">
+  <!-- 由 JS 动态生成 -->
+</div>
+
+<!-- Toast 容器 -->
+<div id="toast-container" aria-live="polite"></div>
+
+<!-- 隐藏的文件输入 -->
+<input type="file" id="file-input-import" accept=".json,.auto.json" style="display:none">
+
+<!-- LiteGraph.js -->
+<script src="https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/build/litegraph.min.js"></script>
+
+<script>
+/* ========================================================================
+ *  自动化脚本编辑器 V5.0 — 前端核心
+ *  职责：LiteGraph初始化、节点定义、工具箱、属性面板、序列化、交互
+ * ======================================================================== */
+
+// ======================== 节点定义注册表 ========================
+// 完整的 P0/P1 节点参数 Schema，属性面板由此驱动渲染
+const NODE_DEFINITIONS = {
+  // ---- 动作节点 ----
+  "action.mouse_click": {
+    category: "action", display: "鼠标点击", icon: "fa-solid fa-arrow-pointer",
+    color: "#22c55e",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"] },
+      x: { type: "number", label: "X", default: 0, coordRef: true },
+      y: { type: "number", label: "Y", default: 0, coordRef: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "", placeholder: "如 game_hwnd" },
+      button: { type: "enum", label: "按钮", default: "left", options: ["left","right","middle"] },
+      click_type: { type: "enum", label: "点击方式", default: "click", options: ["click","dblclick","press","release","long_press"] },
+      hold_time: { type: "number", label: "长按时长", default: 0 },
+      move_duration: { type: "number", label: "移动耗时", default: 0 },
+      before_delay: { type: "number", label: "前延迟", default: 0 },
+      after_delay: { type: "number", label: "后延迟", default: 0 },
+    }
+  },
+  "action.key_action": {
+    category: "action", display: "按键动作", icon: "fa-solid fa-keyboard",
+    color: "#22c55e",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      action: { type: "enum", label: "动作", default: "press", options: ["press","release","type"] },
+      key: { type: "string", label: "按键", default: "a", placeholder: "a-z, 0-9, f1-f12, enter..." },
+      delay: { type: "number", label: "后延迟", default: 0 },
+    }
+  },
+  "action.mouse_scroll": {
+    category: "action", display: "鼠标滚轮", icon: "fa-solid fa-arrows-up-down",
+    color: "#22c55e",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      delta: { type: "number", label: "滚动量", default: 120, desc: "正值向上,负值向下" },
+      delay: { type: "number", label: "后延迟", default: 0 },
+    }
+  },
+  "action.text_input": {
+    category: "action", display: "文本输入", icon: "fa-solid fa-font",
+    color: "#22c55e",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      text: { type: "string", label: "文本内容", default: "" },
+      interval: { type: "number", label: "字符间隔", default: 50 },
+      before_delay: { type: "number", label: "前延迟", default: 0 },
+    }
+  },
+  "action.wait": {
+    category: "action", display: "等待", icon: "fa-solid fa-clock",
+    color: "#22c55e",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      duration: { type: "number", label: "时长", default: 1000 },
+    }
+  },
+
+  // ---- 检测节点 ----
+  "detection.check_color": {
+    category: "detection", display: "颜色检测", icon: "fa-solid fa-palette",
+    color: "#eab308",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "match", type: "flow" },
+      { name: "no", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      rect: { type: "region", label: "检测区域", default: [0,0,10,10], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      target_color: { type: "color", label: "目标颜色", default: "#FF0000" },
+      tolerance: { type: "number", label: "容差", default: 10 },
+      check_mode: { type: "enum", label: "检测方式", default: "contain", options: ["exact","contain","change"] },
+      sample_mode: { type: "enum", label: "采样方式", default: "center", options: ["center","mean","max_diff"] },
+      store_var: { type: "string", label: "存入变量", default: "", placeholder: "可选" },
+    },
+    hasPreview: "color",
+  },
+  "detection.check_ocr": {
+    category: "detection", display: "OCR识别", icon: "fa-solid fa-language",
+    color: "#eab308",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "match", type: "flow" },
+      { name: "no", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      rect: { type: "region", label: "检测区域", default: [0,0,100,30], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      match_text: { type: "string", label: "匹配文本", default: "" },
+      match_mode: { type: "enum", label: "匹配方式", default: "contain", options: ["contain","exact","regex","number_gt","number_lt","number_eq"] },
+      match_number: { type: "number", label: "比较数值", default: 0, showWhen: { match_mode: ["number_gt","number_lt","number_eq"] } },
+      engine: { type: "enum", label: "OCR引擎", default: "rapidocr", options: ["rapidocr"] },
+      store_var: { type: "string", label: "存入变量", default: "" },
+      store_number: { type: "string", label: "数值存入变量", default: "", showWhen: { match_mode: ["number_gt","number_lt","number_eq"] } },
+      cache_strategy: { type: "enum", label: "缓存策略", default: "time_interval", options: ["frame_diff","time_interval","disabled"] },
+      cache_interval_ms: { type: "number", label: "缓存间隔", default: 100, showWhen: { cache_strategy: ["time_interval"] } },
+    },
+    hasPreview: "ocr",
+  },
+  "detection.check_image": {
+    category: "detection", display: "图像匹配", icon: "fa-solid fa-image",
+    color: "#eab308",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "match", type: "flow" },
+      { name: "no", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      template_path: { type: "path", label: "模板路径", default: "", placeholder: "图片路径" },
+      search_region: { type: "region", label: "搜索区域", default: null, nullable: true, coordMode: true },
+      threshold: { type: "number", label: "匹配阈值", default: 0.8 },
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      store_pos: { type: "string", label: "位置存入变量", default: "" },
+    },
+    hasPreview: "image",
+  },
+  "detection.check_screen": {
+    category: "detection", display: "屏幕状态", icon: "fa-solid fa-display",
+    color: "#eab308",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "match", type: "flow" },
+      { name: "no", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      state: { type: "enum", label: "检测目标", default: "black", options: ["black","bright"] },
+      region: { type: "region", label: "检测区域", default: null, nullable: true, coordMode: true },
+      threshold: { type: "number", label: "亮度阈值", default: 30 },
+    }
+  },
+  "detection.check_pixel_diff": {
+    category: "detection", display: "帧差检测", icon: "fa-solid fa-right-left",
+    color: "#eab308",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "match", type: "flow" },
+      { name: "no", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      rect: { type: "region", label: "检测区域", default: [0,0,100,100], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      threshold: { type: "number", label: "变化阈值", default: 10 },
+    }
+  },
+
+  // ---- 控制节点 ----
+  "control.if_else": {
+    category: "control", display: "条件分支", icon: "fa-solid fa-code-branch",
+    color: "#a855f7",
+    inputs: [
+      { name: "in", type: "flow" },
+      { name: "cond", type: "boolean" },
+    ],
+    outputs: [
+      { name: "true", type: "flow" },
+      { name: "false", type: "flow" },
+    ],
+    params: {
+      logic: { type: "enum", label: "逻辑组合", default: "AND", options: ["AND","OR","NOT"] },
+      fallback: { type: "enum", label: "无输入时", default: "false", options: ["true","false"] },
+    }
+  },
+  "control.loop_count": {
+    category: "control", display: "计数循环", icon: "fa-solid fa-repeat",
+    color: "#a855f7",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "body", type: "flow" },
+      { name: "next", type: "flow" },
+    ],
+    params: {
+      count: { type: "number", label: "循环次数", default: 5 },
+      counter_var: { type: "string", label: "计数器变量", default: "", placeholder: "可选, 0-based" },
+    }
+  },
+  "control.loop_while": {
+    category: "control", display: "条件循环", icon: "fa-solid fa-rotate",
+    color: "#a855f7",
+    inputs: [
+      { name: "in", type: "flow" },
+      { name: "cond", type: "boolean" },
+    ],
+    outputs: [
+      { name: "body", type: "flow" },
+      { name: "next", type: "flow" },
+    ],
+    params: {
+      max_iterations: { type: "number", label: "最大迭代", default: 10000 },
+      check_at: { type: "enum", label: "检查时机", default: "start", options: ["start","end"] },
+    }
+  },
+
+  // ---- 动作块节点 ----
+  "script.call_script_sync": {
+    category: "script_block", display: "调用宏(同步)", icon: "fa-solid fa-play",
+    color: "#3b82f6",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      path: { type: "path", label: "宏文件路径", default: "", placeholder: "宏/*.json" },
+      speed_factor: { type: "number", label: "倍速", default: 1.0 },
+      timeline_mode: { type: "enum", label: "时间线", default: "absolute", options: ["absolute","relative_compensated"] },
+      random_delay: { type: "bool", label: "随机延迟修正", default: false },
+    },
+    hasBlockEditor: true,
+  },
+  "script.call_script_async": {
+    category: "script_block", display: "调用宏(异步)", icon: "fa-solid fa-forward",
+    color: "#3b82f6",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "next", type: "flow" },
+      { name: "completed", type: "flow" },
+      { name: "interrupted", type: "flow" },
+    ],
+    params: {
+      path: { type: "path", label: "宏文件路径", default: "", placeholder: "宏/*.json" },
+      speed_factor: { type: "number", label: "倍速", default: 1.0 },
+      timeline_mode: { type: "enum", label: "时间线", default: "absolute", options: ["absolute","relative_compensated"] },
+      random_delay: { type: "bool", label: "随机延迟修正", default: false },
+    },
+    hasBlockEditor: true,
+  },
+
+  // ---- 监视器节点 ----
+  "monitor.monitor_color": {
+    category: "monitor", display: "颜色监视", icon: "fa-solid fa-eye",
+    color: "#06b6d4",
+    inputs: [],
+    outputs: [
+      { name: "trigger", type: "flow" },
+      { name: "timeout", type: "flow" },
+    ],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      rect: { type: "region", label: "检测区域", default: [0,0,10,10], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      target_color: { type: "color", label: "目标颜色", default: "#FF0000" },
+      tolerance: { type: "number", label: "容差", default: 10 },
+      interval: { type: "number", label: "检测间隔", default: 100 },
+      timeout: { type: "number", label: "超时", default: 0 },
+      trigger_mode: { type: "enum", label: "触发模式", default: "appear", options: ["appear","disappear","change"] },
+      on_trigger: { type: "enum", label: "触发行为", default: "branch", options: ["branch","stop_all","stop_task","pause_task"] },
+      target_task: { type: "string", label: "目标任务ID", default: "", showWhen: { on_trigger: ["stop_task","pause_task"] } },
+      auto_stop: { type: "bool", label: "触发后自动停止", default: true },
+    }
+  },
+  "monitor.monitor_ocr": {
+    category: "monitor", display: "OCR监视", icon: "fa-solid fa-eye",
+    color: "#06b6d4",
+    inputs: [],
+    outputs: [
+      { name: "trigger", type: "flow" },
+      { name: "timeout", type: "flow" },
+    ],
+    params: {
+      mode: { type: "enum", label: "坐标模式", default: "screen", options: ["screen","window","relative"], coordMode: true },
+      rect: { type: "region", label: "检测区域", default: [0,0,100,30], coordMode: true },
+      hwnd_var: { type: "string", label: "窗口变量", default: "" },
+      match_text: { type: "string", label: "匹配文本", default: "" },
+      match_mode: { type: "enum", label: "匹配方式", default: "contain", options: ["contain","exact","regex","number_gt","number_lt","number_eq"] },
+      match_number: { type: "number", label: "比较数值", default: 0, showWhen: { match_mode: ["number_gt","number_lt","number_eq"] } },
+      engine: { type: "enum", label: "OCR引擎", default: "rapidocr", options: ["rapidocr"] },
+      interval: { type: "number", label: "检测间隔", default: 200 },
+      timeout: { type: "number", label: "超时", default: 0 },
+      on_trigger: { type: "enum", label: "触发行为", default: "branch", options: ["branch","stop_all","stop_task","pause_task"] },
+      target_task: { type: "string", label: "目标任务ID", default: "", showWhen: { on_trigger: ["stop_task","pause_task"] } },
+      auto_stop: { type: "bool", label: "触发后自动停止", default: true },
+    }
+  },
+  "monitor.monitor_timer": {
+    category: "monitor", display: "定时器", icon: "fa-solid fa-stopwatch",
+    color: "#06b6d4",
+    inputs: [],
+    outputs: [{ name: "trigger", type: "flow" }],
+    params: {
+      interval: { type: "number", label: "触发间隔", default: 1000 },
+      repeat_count: { type: "number", label: "重复次数", default: 0 },
+      on_trigger: { type: "enum", label: "触发行为", default: "branch", options: ["branch","stop_all"] },
+    }
+  },
+
+  // ---- 变量节点 ----
+  "variable.var_set": {
+    category: "variable", display: "设置变量", icon: "fa-solid fa-equals",
+    color: "#f97316",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      name: { type: "string", label: "变量名", default: "" },
+      value: { type: "string", label: "值", default: "" },
+      var_type: { type: "enum", label: "类型", default: "string", options: ["number","string","boolean","point","color"] },
+    }
+  },
+  "variable.var_math": {
+    category: "variable", display: "数学运算", icon: "fa-solid fa-calculator",
+    color: "#f97316",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      op: { type: "enum", label: "运算", default: "+", options: ["+","-","*","/","%","min","max","abs","round"] },
+      a: { type: "string", label: "操作数A", default: "" },
+      b: { type: "string", label: "操作数B", default: "" },
+      store_var: { type: "string", label: "存入变量", default: "" },
+    }
+  },
+  "variable.var_compare": {
+    category: "variable", display: "比较", icon: "fa-solid fa-not-equal",
+    color: "#f97316",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [
+      { name: "next", type: "flow" },
+      { name: "result", type: "boolean" },
+    ],
+    params: {
+      op: { type: "enum", label: "比较", default: ">", options: [">","<",">=","<=","==","!="] },
+      a: { type: "string", label: "值A", default: "" },
+      b: { type: "string", label: "值B", default: "" },
+    }
+  },
+  "variable.var_string": {
+    category: "variable", display: "字符串操作", icon: "fa-solid fa-text-width",
+    color: "#f97316",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      op: { type: "enum", label: "操作", default: "regex_extract", options: ["concat","substring","replace","split","regex_extract"] },
+      a: { type: "string", label: "输入A", default: "" },
+      b: { type: "string", label: "参数B", default: "" },
+      store_var: { type: "string", label: "存入变量", default: "" },
+    }
+  },
+  "variable.var_convert": {
+    category: "variable", display: "类型转换", icon: "fa-solid fa-arrow-right-arrow-left",
+    color: "#f97316",
+    inputs: [{ name: "in", type: "flow" }],
+    outputs: [{ name: "next", type: "flow" }],
+    params: {
+      to_type: { type: "enum", label: "目标类型", default: "number", options: ["number","string","boolean"] },
+      input_var: { type: "string", label: "输入变量", default: "" },
+      store_var: { type: "string", label: "存入变量", default: "" },
+    }
+  },
+};
+
+// 工具箱分类定义
+const TOOLBOX_CATEGORIES = [
+  { id: "action",       name: "动作节点",   color: "#22c55e" },
+  { id: "detection",    name: "检测节点",   color: "#eab308" },
+  { id: "control",      name: "控制节点",   color: "#a855f7" },
+  { id: "script_block", name: "动作块",     color: "#3b82f6" },
+  { id: "monitor",      name: "监视器",     color: "#06b6d4" },
+  { id: "variable",     name: "变量",       color: "#f97316" },
+];
+
+// ======================== 全局状态 ========================
+let lgGraph = null;       // LiteGraph 实例
+let selectedNode = null;  // 当前选中节点
+let executionState = "idle"; // idle | running | paused | error
+
+// ======================== 工具函数 ========================
+
+/** 显示 Toast 通知 */
+function showToast(message, type = "info", duration = 3000) {
+  const container = document.getElementById("toast-container");
+  const icons = { success: "fa-check-circle", error: "fa-circle-xmark", warning: "fa-triangle-exclamation", info: "fa-circle-info" };
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add("toast-exit");
+    setTimeout(() => toast.remove(), 150);
+  }, duration);
+}
+
+/** 设置执行状态 */
+function setExecutionState(state) {
+  executionState = state;
+  const el = document.getElementById("auto-status");
+  const label = el.querySelector(".label");
+  const stateMap = { idle: "IDLE", running: "RUNNING", paused: "PAUSED", error: "ERROR" };
+  el.dataset.state = state;
+  label.textContent = stateMap[state] || state.toUpperCase();
+
+  const btnRun = document.getElementById("btn-run");
+  const btnStop = document.getElementById("btn-stop");
+  const btnPause = document.getElementById("btn-pause");
+
+  btnRun.disabled = state === "running";
+  btnStop.disabled = state === "idle";
+  btnPause.disabled = state === "idle";
+
+  if (state === "paused") {
+    btnPause.innerHTML = '<i class="fa-solid fa-play"></i> 继续';
+  } else {
+    btnPause.innerHTML = '<i class="fa-solid fa-pause"></i> 暂停';
+  }
+}
+
+/** 更新状态栏统计 */
+function updateStatusBar() {
+  if (!lgGraph) return;
+  const nodes = lgGraph.graph._nodes || [];
+  const links = lgGraph.graph._links || [];
+  const monitorCount = nodes.filter(n => n.type && n.type.startsWith("monitor.")).length;
+  const varCount = nodes.filter(n => n.type && n.type.startsWith("variable.")).length;
+  document.getElementById("stat-nodes").textContent = nodes.length;
+  document.getElementById("stat-connections").textContent = links.filter(l => l).length;
+  document.getElementById("stat-monitors").textContent = monitorCount;
+  document.getElementById("stat-variables").textContent = varCount;
+}
+
+/** 更新光标坐标显示 */
+function updateCursorCoord(x, y) {
+  document.getElementById("stat-cursor").textContent = `坐标: ${Math.round(x)}, ${Math.round(y)}`;
+}
+
+// ======================== LiteGraph 节点工厂 ========================
+
+/** 根据 NODE_DEFINITIONS 动态创建 LiteGraph 节点类 */
+function createNodeClass(defKey) {
+  const def = NODE_DEFINITIONS[defKey];
+  if (!def) return null;
+
+  return function() {
+    // 注册输入端口
+    (def.inputs || []).forEach(p => this.addInput(p.name, p.type));
+    // 注册输出端口
+    (def.outputs || []).forEach(p => this.addOutput(p.name, p.type));
+    // 初始化默认参数
+    this.properties = {};
+    for (const [key, schema] of Object.entries(def.params)) {
+      if (schema.type === "region" && schema.nullable) {
+        this.properties[key] = null;
+      } else if (schema.type === "region") {
+        this.properties[key] = [...(schema.default || [0,0,10,10])];
+      } else if (schema.type === "bool") {
+        this.properties[key] = !!schema.default;
+      } else {
+        this.properties[key] = schema.default !== undefined ? schema.default : (schema.type === "number" ? 0 : "");
+      }
+    }
+    this.color = def.color;
+    this.title = def.display;
+    this._defKey = defKey;
+    // 根据端口数量动态计算节点高度
+    const portCount = (def.inputs || []).length + (def.outputs || []).length;
+    const minH = 50;
+    const portH = 22;
+    this.size = [200, Math.max(minH, 30 + portCount * portH)];
+  };
+}
+
+/** 注册所有节点类型到 LiteGraph */
+function registerAllNodes() {
+  for (const [defKey, def] of Object.entries(NODE_DEFINITIONS)) {
+    const cls = createNodeClass(defKey);
+    if (cls) LiteGraph.registerNodeType(defKey, cls);
+  }
+}
+
+// ======================== 工具箱渲染 ========================
+
+function renderToolbox(filterText = "") {
+  const container = document.getElementById("toolbox-categories");
+  container.innerHTML = "";
+  const filter = filterText.toLowerCase().trim();
+
+  TOOLBOX_CATEGORIES.forEach(cat => {
+    const catNodes = Object.entries(NODE_DEFINITIONS)
+      .filter(([k, v]) => v.category === cat.id)
+      .filter(([k, v]) => !filter || v.display.toLowerCase().includes(filter) || k.toLowerCase().includes(filter));
+
+    if (catNodes.length === 0 && filter) return;
+
+    const catEl = document.createElement("div");
+    catEl.className = "toolbox-category";
+
+    // 分类头
+    const header = document.createElement("div");
+    header.className = "category-header";
+    header.innerHTML = `
+      <span class="cat-dot" style="background:${cat.color}"></span>
+      <span class="cat-name">${cat.name}</span>
+      <span class="cat-count">${catNodes.length}</span>
+      <i class="fa-solid fa-chevron-down cat-arrow"></i>
+    `;
+    header.addEventListener("click", () => {
+      header.classList.toggle("collapsed");
+    });
+
+    // 节点列表
+    const nodesEl = document.createElement("div");
+    nodesEl.className = "category-nodes";
+
+    catNodes.forEach(([defKey, def]) => {
+      const item = document.createElement("div");
+      item.className = "toolbox-node-item";
+      item.dataset.nodeType = defKey;
+      item.innerHTML = `<i class="${def.icon}"></i><span>${def.display}</span>`;
+      item.draggable = true;
+
+      // 拖拽开始
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("node-type", defKey);
+        e.dataTransfer.effectAllowed = "copy";
+      });
+
+      // 双击快速添加到画布中心
+      item.addEventListener("dblclick", () => {
+        addNodeToCenter(defKey);
+      });
+
+      nodesEl.appendChild(item);
+    });
+
+    catEl.appendChild(header);
+    catEl.appendChild(nodesEl);
+    container.appendChild(catEl);
+  });
+}
+
+/** 在画布可视区域中心添加节点 */
+function addNodeToCenter(defKey) {
+  if (!lgGraph) return;
+  const node = lgGraph.graph.createNode(defKey);
+  if (!node) { showToast(`未知节点类型: ${defKey}`, "error"); return; }
+  // 计算画布中心对应的图坐标
+  const canvas = lgGraph.canvas;
+  const cx = (canvas.offset_x + canvas.canvas.width / 2) / canvas.scale;
+  const cy = (canvas.offset_y + canvas.canvas.height / 2) / canvas.scale;
+  node.pos[0] = cx - node.size[0] / 2;
+  node.pos[1] = cy - node.size[1] / 2;
+  lgGraph.graph.add(node);
+  lgGraph.canvas.setNodeSelection(node, true);
+  updateStatusBar();
+}
+
+// ======================== 属性面板渲染 ========================
+
+/** 渲染选中节点的属性面板 */
+function renderPropertyPanel(node) {
+  const container = document.getElementById("property-panel-content");
+  if (!node || !node._defKey || !NODE_DEFINITIONS[node._defKey]) {
+    container.innerHTML = `<div class="empty-hint"><i class="fa-regular fa-hand-pointer"></i><span>选择节点查看属性</span></div>`;
+    return;
+  }
+
+  const def = NODE_DEFINITIONS[node._defKey];
+  const params = node.properties || {};
+
+  let html = "";
+
+  // 节点标题区
+  html += `
+    <div class="prop-node-header">
+      <div class="prop-node-color" style="background:${def.color}"></div>
+      <div>
+        <div class="prop-node-title">${def.display}</div>
+        <div class="prop-node-type">${node._defKey} #${node.id}</div>
+      </div>
+    </div>
+  `;
+
+  // 参数分组：坐标相关、检测参数、通用参数
+  const coordParams = Object.entries(def.params).filter(([k,s]) => s.coordRef || s.coordMode);
+  const mainParams = Object.entries(def.params).filter(([k,s]) => !s.coordRef && !s.coordMode);
+
+  if (coordParams.length > 0) {
+    html += renderParamGroup("坐标", coordParams, params, node);
+  }
+  if (mainParams.length > 0) {
+    html += renderParamGroup("参数", mainParams, params, node);
+  }
+
+  // 预览按钮
+  if (def.hasPreview) {
+    html += `
+      <div class="prop-group">
+        <div class="prop-group-header"><i class="fa-solid fa-eye arrow"></i> 实时预览</div>
+        <div class="prop-group-body">
+          <div class="prop-preview" id="preview-area"><span>点击预览查看结果</span></div>
+          <div class="prop-btn-row">
+            <button class="prop-btn accent-outline" onclick="runPreview('${node._defKey}', ${node.id})">
+              <i class="fa-solid fa-bolt"></i> 预览
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // 块编辑器按钮
+  if (def.hasBlockEditor) {
+    html += `
+      <div class="prop-group">
+        <div class="prop-group-header"><i class="fa-solid fa-pen-to-square arrow"></i> 动作编辑</div>
+        <div class="prop-group-body">
+          <div class="prop-btn-row">
+            <button class="prop-btn accent-outline" onclick="openBlockEditor(${node.id})">
+              <i class="fa-solid fa-pen"></i> 编辑动作块
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+
+  // 绑定事件
+  bindPropertyEvents(container, node, def);
+}
+
+/** 渲染参数分组 */
+function renderParamGroup(groupName, paramEntries, currentParams, node) {
+  let html = `<div class="prop-group">
+    <div class="prop-group-header"><i class="fa-solid fa-chevron-down arrow"></i> ${groupName}</div>
+    <div class="prop-group-body">`;
+
+  for (const [key, schema] of paramEntries) {
+    // 条件显示检查
+    if (schema.showWhen) {
+      let shouldShow = true;
+      for (const [depKey, depValues] of Object.entries(schema.showWhen)) {
+        const curVal = currentParams[depKey];
+        if (!depValues.includes(curVal)) { shouldShow = false; break; }
+      }
+      if (!shouldShow) continue;
+    }
+
+    const val = currentParams[key];
+    const isVarRef = typeof val === "string" && val.startsWith("${") && val.endsWith("}");
+
+    switch (schema.type) {
+      case "enum":
+        html += renderEnumField(key, schema, val, isVarRef);
+        break;
+      case "number":
+        html += renderNumberField(key, schema, val, isVarRef, currentParams);
+        break;
+      case "string":
+        html += renderStringField(key, schema, val, isVarRef);
+        break;
+      case "bool":
+        html += renderBoolField(key, schema, val);
+        break;
+      case "color":
+        html += renderColorField(key, schema, val, isVarRef);
+        break;
+      case "region":
+        html += renderRegionField(key, schema, val, isVarRef, currentParams);
+        break;
+      case "path":
+        html += renderPathField(key, schema, val, isVarRef);
+        break;
+    }
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function renderEnumField(key, schema, val, isVarRef) {
+  const options = (schema.options || []).map(o =>
+    `<option value="${o}" ${val === o ? "selected" : ""}>${o}</option>`
+  ).join("");
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  return `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <select data-key="${key}" data-type="enum">${options}</select>
+  </div>`;
+}
+
+function renderNumberField(key, schema, val, isVarRef, allParams) {
+  const step = (schema.coordRef && allParams.mode === "relative") ? "0.01" : "1";
+  const placeholder = (schema.coordRef && allParams.mode === "relative") ? "0.0 ~ 1.0" : "";
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  return `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <input type="number" data-key="${key}" data-type="number" value="${val ?? schema.default}" step="${step}" placeholder="${placeholder}">
+    ${schema.desc ? `<span style="font-size:10px;color:var(--text-muted)">${schema.desc}</span>` : ""}
+  </div>`;
+}
+
+function renderStringField(key, schema, val, isVarRef) {
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  return `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <input type="text" data-key="${key}" data-type="string" value="${val ?? ""}" placeholder="${schema.placeholder || ""}">
+  </div>`;
+}
+
+function renderBoolField(key, schema, val) {
+  return `<div class="prop-field">
+    <div class="checkbox-row">
+      <input type="checkbox" data-key="${key}" data-type="bool" id="cb_${key}" ${val ? "checked" : ""}>
+      <label for="cb_${key}">${schema.label}</label>
+    </div>
+  </div>`;
+}
+
+function renderColorField(key, schema, val, isVarRef) {
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  return `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input type="color" data-key="${key}" data-type="color" value="${val || "#FF0000"}" style="width:36px;height:28px;padding:1px;cursor:pointer;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface)">
+      <input type="text" data-key="${key}" data-type="color-text" value="${val || "#FF0000"}" style="flex:1" placeholder="#RRGGBB">
+    </div>
+  </div>`;
+}
+
+function renderRegionField(key, schema, val, isVarRef, allParams) {
+  const isRelative = allParams.mode === "relative";
+  const step = isRelative ? "0.01" : "1";
+  const vals = Array.isArray(val) ? val : (schema.default || [0,0,10,10]);
+  const labels = ["X", "Y", "W", "H"];
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  let html = `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <div class="region-grid">`;
+  for (let i = 0; i < 4; i++) {
+    html += `<div class="region-cell">
+      <label>${labels[i]}</label>
+      <input type="number" data-key="${key}" data-type="region" data-index="${i}" value="${vals[i]}" step="${step}">
+    </div>`;
+  }
+  html += `</div>`;
+  // 框选按钮
+  if (!isVarRef) {
+    html += `<div class="prop-btn-row" style="margin-top:6px">
+      <button class="prop-btn outline" onclick="startRegionPick(${allParams._nodeId})"><i class="fa-solid fa-crop-simple"></i> 框选区域</button>
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderPathField(key, schema, val, isVarRef) {
+  const varBadge = isVarRef ? `<span class="var-badge">VAR</span>` : "";
+  return `<div class="prop-field">
+    <label class="prop-field-label">${schema.label} ${varBadge}</label>
+    <div style="display:flex;gap:4px">
+      <input type="text" data-key="${key}" data-type="string" value="${val || ""}" placeholder="${schema.placeholder || ""}" style="flex:1">
+      <button class="prop-btn outline" onclick="browseMacroPath(${selectedNode ? selectedNode.id : 0})" style="flex-shrink:0;padding:5px 8px"><i class="fa-solid fa-folder-open"></i></button>
+    </div>
+  </div>`;
+}
+
+/** 绑定属性面板事件 */
+function bindPropertyEvents(container, node, def) {
+  // 给区域字段注入节点ID
+  container.querySelectorAll("[data-key]").forEach(el => {
+    if (!el.dataset._nodeIdSet) {
+      el.dataset._nodeIdSet = "1";
+      el.closest(".prop-field")?.dataset?.nodeId && delete el.closest(".prop-field").dataset.nodeId;
+    }
+  });
+
+  // select 变更
+  container.querySelectorAll("select[data-key]").forEach(sel => {
+    sel.addEventListener("change", () => {
+      const key = sel.dataset.key;
+      node.properties[key] = sel.value;
+      // 坐标模式变更时需要重新渲染面板（联动 step）
+      if (key === "mode" || (def.params[sel.value] && def.params[sel.value].showWhen)) {
+        renderPropertyPanel(node);
+      }
+      // 触发 showWhen 联动
+      checkShowWhenChanges(node, def, container);
+    });
+  });
+
+  // input 变更
+  container.querySelectorAll("input[data-type='number']").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const key = inp.dataset.key;
+      if (inp.dataset.type === "region") {
+        const idx = parseInt(inp.dataset.index);
+        if (!Array.isArray(node.properties[key])) node.properties[key] = [0,0,10,10];
+        node.properties[key][idx] = parseFloat(inp.value) || 0;
+      } else {
+        node.properties[key] = parseFloat(inp.value) || 0;
+      }
+    });
+  });
+
+  container.querySelectorAll("input[data-type='string']").forEach(inp => {
+    inp.addEventListener("input", () => {
+      node.properties[inp.dataset.key] = inp.value;
+    });
+  });
+
+  container.querySelectorAll("input[data-type='color']").forEach(inp => {
+    inp.addEventListener("input", () => {
+      node.properties[inp.dataset.key] = inp.value;
+      // 同步文本框
+      const textInput = container.querySelector(`input[data-type='color-text'][data-key="${inp.dataset.key}"]`);
+      if (textInput) textInput.value = inp.value;
+    });
+  });
+
+  container.querySelectorAll("input[data-type='color-text']").forEach(inp => {
+    inp.addEventListener("input", () => {
+      if (/^#[0-9a-fA-F]{6}$/.test(inp.value)) {
+        node.properties[inp.dataset.key] = inp.value;
+        const colorInput = container.querySelector(`input[data-type='color'][data-key="${inp.dataset.key}"]`);
+        if (colorInput) colorInput.value = inp.value;
+      }
+    });
+  });
+
+  container.querySelectorAll("input[data-type='bool']").forEach(inp => {
+    inp.addEventListener("change", () => {
+      node.properties[inp.dataset.key] = inp.checked;
+    });
+  });
+
+  // 坐标拾取按钮（通过事件委托已在外部处理）
+}
+
+/** 检查 showWhen 联动 — 简化版通过重新渲染实现 */
+function checkShowWhenChanges(node, def, container) {
+  // 遍历所有 showWhen 字段，检查当前值是否匹配
+  let needsRefresh = false;
+  for (const [key, schema] of Object.entries(def.params)) {
+    if (schema.showWhen) {
+      for (const [depKey, depValues] of Object.entries(schema.showWhen)) {
+        if (depValues.includes(node.properties[depKey])) {
+          const el = container.querySelector(`[data-key="${key}"]`);
+          if (el && el.closest(".prop-field").style.display === "none") { needsRefresh = true; break; }
+        }
+      }
+    }
+    if (needsRefresh) break;
+  }
+  if (needsRefresh) renderPropertyPanel(node);
+}
+
+// ======================== 序列化 / 反序列化 ========================
+
+/** 获取连线类型：flow 或 data */
+function getLinkType(originNode, originSlot) {
+  const output = originNode.outputs[originSlot];
+  if (!output) return "flow";
+  return output.type === "flow" ? "flow" : "data";
+}
+
+/** 序列化图为 .auto.json 格式 */
+function serializeGraph() {
+  if (!lgGraph) return null;
+  const nodes = [];
+  const connections = [];
+
+  for (const node of lgGraph.graph._nodes) {
+    nodes.push({
+      id: String(node.id),
+      type: node._defKey || node.type,
+      position: { x: Math.round(node.pos[0]), y: Math.round(node.pos[1]) },
+      params: { ...node.properties },
+    });
+  }
+
+  for (const link of lgGraph.graph._links) {
+    if (!link) continue;
+    const originNode = lgGraph.graph.getNodeById(link.origin_id);
+    const targetNode = lgGraph.graph.getNodeById(link.target_id);
+    if (!originNode || !targetNode) continue;
+
+    connections.push({
+      id: String(link.id),
+      from: {
+        node: String(link.origin_id),
+        port: originNode.outputs[link.origin_slot]?.name || String(link.origin_slot),
+      },
+      to: {
+        node: String(link.target_id),
+        port: targetNode.inputs[link.target_slot]?.name || String(link.target_slot),
+      },
+      type: getLinkType(originNode, link.origin_slot),
+    });
+  }
+
+  return {
+    meta: {
+      name: "未命名脚本",
+      version: "5.0",
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      description: "",
+    },
+    variables: {},
+    settings: {},
+    graph: { nodes, connections },
+  };
+}
+
+/** 反序列化 .auto.json 到画布 */
+function deserializeGraph(jsonData) {
+  if (!lgGraph || !jsonData || !jsonData.graph) return false;
+  lgGraph.graph.clear();
+
+  const nodeMap = {};
+  for (const nodeJson of jsonData.graph.nodes) {
+    const node = lgGraph.graph.createNode(nodeJson.type);
+    if (!node) {
+      showToast(`无法创建节点: ${nodeJson.type}`, "warning");
+      continue;
+    }
+    node.id = parseInt(nodeJson.id) || undefined;
+    node.pos[0] = nodeJson.position?.x || 0;
+    node.pos[1] = nodeJson.position?.y || 0;
+    if (nodeJson.params) {
+      for (const [k, v] of Object.entries(nodeJson.params)) {
+        node.properties[k] = v;
+      }
+    }
+    lgGraph.graph.add(node);
+    nodeMap[nodeJson.id] = node;
+  }
+
+  for (const conn of jsonData.graph.connections) {
+    const fromNode = nodeMap[conn.from.node];
+    const toNode = nodeMap[conn.to.node];
+    if (!fromNode || !toNode) continue;
+
+    // 查找端口索引
+    let fromSlot = fromNode.outputs?.findIndex(o => o.name === conn.from.port);
+    let toSlot = toNode.inputs?.findIndex(i => i.name === conn.to.port);
+    if (fromSlot < 0 || toSlot < 0) continue;
+
+    lgGraph.graph.connect(fromNode.id, fromSlot, toNode.id, toSlot);
+  }
+
+  updateStatusBar();
+  return true;
+}
+
+// ======================== 导出 / 导入 / 保存 ========================
+
+function exportGraph() {
+  const data = serializeGraph();
+  if (!data) { showToast("没有可导出的内容", "warning"); return; }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (data.meta.name || "脚本") + ".auto.json";
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("已导出脚本文件", "success");
+}
+
+function importGraph() {
+  document.getElementById("file-input-import").click();
+}
+
+function handleFileImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (deserializeGraph(data)) {
+        showToast(`已导入: ${data.meta?.name || file.name}`, "success");
+      } else {
+        showToast("导入失败：格式无效", "error");
+      }
+    } catch (err) {
+      showToast(`导入失败: ${err.message}`, "error");
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = ""; // 允许重复导入同一文件
+}
+
+function saveGraph() {
+  // 通过 pywebview API 保存（如果可用），否则回退到导出
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.save_auto_script) {
+    const data = serializeGraph();
+    // 简单的保存路径提示
+    const name = data?.meta?.name || "未命名脚本";
+    window.pywebview.api.save_auto_script(`自动化脚本/${name}.auto.json`, JSON.stringify(data, null, 2))
+      .then(res => {
+        if (res && res.ok) showToast("保存成功", "success");
+        else showToast(res?.error || "保存失败", "error");
+      })
+      .catch(() => exportGraph());
+  } else {
+    exportGraph();
+  }
+}
+
+// ======================== 运行 / 停止 / 暂停 ========================
+
+function runGraph() {
+  const data = serializeGraph();
+  if (!data || data.graph.nodes.length === 0) {
+    showToast("画布为空，无法运行", "warning");
+    return;
+  }
+  // 查找入口节点（无 flow 输入连接的节点）
+  const connectedTargets = new Set(data.graph.connections.filter(c => c.type === "flow").map(c => c.to.node));
+  const entries = data.graph.nodes.filter(n => !connectedTargets.has(n.id));
+  if (entries.length === 0) {
+    showToast("未找到入口节点（无输入连线的节点）", "warning");
+    return;
+  }
+
+  setExecutionState("running");
+  showToast(`开始执行，入口: ${entries[0].type}`, "info");
+
+  // 通过 pywebview API 调用后端执行
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.run_automation) {
+    window.pywebview.api.run_automation(JSON.stringify(data))
+      .then(res => {
+        if (res && res.ok) {
+          showToast(`任务已启动: ${res.data?.task_id}`, "success");
+        } else {
+          showToast(res?.error || "启动失败", "error");
+          setExecutionState("idle");
+        }
+      })
+      .catch(err => {
+        showToast(`执行错误: ${err.message || err}`, "error");
+        setExecutionState("error");
+      });
+  } else {
+    // 无后端时模拟执行
+    simulateExecution(entries);
+  }
+}
+
+function stopGraph() {
+  setExecutionState("idle");
+  clearNodeHighlights();
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_automation) {
+    window.pywebview.api.stop_automation().catch(() => {});
+  }
+  showToast("已停止", "info");
+}
+
+function pauseGraph() {
+  if (executionState === "running") {
+    setExecutionState("paused");
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.pause_automation) {
+      window.pywebview.api.pause_automation().catch(() => {});
+    }
+    showToast("已暂停", "info");
+  } else if (executionState === "paused") {
+    setExecutionState("running");
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.resume_automation) {
+      window.pywebview.api.resume_automation().catch(() => {});
+    }
+    showToast("已继续", "info");
+  }
+}
+
+/** 无后端时的模拟执行（仅做节点高亮演示） */
+function simulateExecution(entryNodes) {
+  clearNodeHighlights();
+  const allNodes = lgGraph.graph._nodes;
+  let idx = 0;
+  const interval = setInterval(() => {
+    if (executionState === "idle" || idx >= allNodes.length) {
+      clearInterval(interval);
+      clearNodeHighlights();
+      setExecutionState("idle");
+      if (idx >= allNodes.length) showToast("模拟执行完成", "success");
+      return;
+    }
+    if (executionState === "paused") return;
+
+    // 清除上一个高亮
+    if (idx > 0 && allNodes[idx-1]) {
+      allNodes[idx-1].boxcolor = null;
+    }
+    // 设置当前高亮
+    const node = allNodes[idx];
+    if (node) {
+      node.boxcolor = "#ffffffff";
+      selectedNode = node;
+      renderPropertyPanel(node);
+    }
+    idx++;
+  }, 500);
+}
+
+function clearNodeHighlights() {
+  if (!lgGraph) return;
+  lgGraph.graph._nodes.forEach(n => { n.boxcolor = null; });
+}
+
+// ======================== 坐标拾取 ========================
+
+let pickState = { active: false, mode: "screen", callback: null, isRegion: false, startPos: null };
+
+function startCoordinatePick(mode, callback) {
+  pickState.active = true;
+  pickState.mode = mode;
+  pickState.callback = callback;
+  pickState.isRegion = false;
+  pickState.startPos = null;
+
+  const overlay = document.getElementById("pick-overlay");
+  const canvas = document.getElementById("pick-canvas");
+  const modeLabels = { screen: "屏幕坐标", window: "窗口坐标", relative: "相对坐标" };
+  document.getElementById("pick-mode-label").textContent = modeLabels[mode] || "屏幕坐标";
+  document.getElementById("pick-coord-value").textContent = "0, 0";
+
+  overlay.style.display = "block";
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  // 截取屏幕背景（有后端时通过API，无后端时半透明覆盖）
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function startRegionPick(nodeId) {
+  const node = lgGraph?.graph?.getNodeById(nodeId);
+  if (!node) return;
+  const mode = node.properties.mode || "screen";
+  pickState.active = true;
+  pickState.mode = mode;
+  pickState.isRegion = true;
+  pickState.callback = (rect) => {
+    if (node.properties.rect === null) node.properties.rect = [0,0,0,0];
+    node.properties.rect = rect;
+    renderPropertyPanel(node);
+  };
+  pickState.startPos = null;
+
+  const overlay = document.getElementById("pick-overlay");
+  const canvas = document.getElementById("pick-canvas");
+  const modeLabels = { screen: "屏幕坐标", window: "窗口坐标", relative: "相对坐标" };
+  document.getElementById("pick-mode-label").textContent = (modeLabels[mode] || "屏幕") + " - 拖动框选区域";
+  document.getElementById("pick-coord-value").textContent = "拖动鼠标框选";
+
+  overlay.style.display = "block";
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function cancelPick() {
+  pickState.active = false;
+  pickState.callback = null;
+  document.getElementById("pick-overlay").style.display = "none";
+}
+
+function handlePickClick(e) {
+  if (!pickState.active || pickState.isRegion) return;
+  const x = e.clientX, y = e.clientY;
+  document.getElementById("pick-coord-value").textContent = `${x}, ${y}`;
+
+  // 通过后端获取精确坐标，无后端时直接使用屏幕坐标
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_coordinate) {
+    window.pywebview.api.pick_coordinate(pickState.mode).then(res => {
+      if (res && res.ok) {
+        const d = res.data;
+        pickState.callback && pickState.callback(d.logic_x, d.logic_y);
+        showToast(`坐标: ${d.logic_x}, ${d.logic_y}`, "success");
+      }
+      cancelPick();
+    }).catch(() => {
+      pickState.callback && pickState.callback(x, y);
+      cancelPick();
+    });
+  } else {
+    pickState.callback && pickState.callback(x, y);
+    cancelPick();
+  }
+}
+
+function handlePickMove(e) {
+  if (!pickState.active) return;
+  const x = e.clientX, y = e.clientY;
+
+  if (pickState.isRegion) {
+    const canvas = document.getElementById("pick-canvas");
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (pickState.startPos) {
+      const sx = pickState.startPos.x, sy = pickState.startPos.y;
+      const rx = Math.min(sx, x), ry = Math.min(sy, y);
+      const rw = Math.abs(x - sx), rh = Math.abs(y - sy);
+      // 绘制选择框
+      ctx.fillStyle = "rgba(16,185,129,0.15)";
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeStyle = "#ffffffff";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+      document.getElementById("pick-coord-value").textContent = `${rw} x ${rh}`;
+    }
+  } else {
+    document.getElementById("pick-coord-value").textContent = `${x}, ${y}`;
+  }
+}
+
+function handlePickMouseDown(e) {
+  if (!pickState.active || !pickState.isRegion) return;
+  pickState.startPos = { x: e.clientX, y: e.clientY };
+}
+
+function handlePickMouseUp(e) {
+  if (!pickState.active || !pickState.isRegion || !pickState.startPos) return;
+  const sx = pickState.startPos.x, sy = pickState.startPos.y;
+  const x = e.clientX, y = e.clientY;
+  const rx = Math.min(sx, x), ry = Math.min(sy, y);
+  const rw = Math.abs(x - sx), rh = Math.abs(y - sy);
+
+  if (rw < 5 || rh < 5) {
+    pickState.startPos = null;
+    return;
+  }
+
+  // 通过后端转换坐标，无后端时直接使用
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_region) {
+    window.pywebview.api.pick_region(pickState.mode).then(res => {
+      if (res && res.ok) {
+        pickState.callback && pickState.callback(res.data.rect);
+        showToast(`区域: ${res.data.rect.join(", ")}`, "success");
+      }
+      cancelPick();
+    }).catch(() => {
+      pickState.callback && pickState.callback([rx, ry, rw, rh]);
+      cancelPick();
+    });
+  } else {
+    pickState.callback && pickState.callback([rx, ry, rw, rh]);
+    cancelPick();
+  }
+}
+
+// ======================== 预览功能 ========================
+
+function runPreview(defKey, nodeId) {
+  const node = lgGraph?.graph?.getNodeById(nodeId);
+  if (!node) return;
+  const area = document.getElementById("preview-area");
+  if (!area) return;
+  area.innerHTML = '<span style="color:var(--text-muted)">正在预览...</span>';
+
+  if (window.pywebview && window.pywebview.api) {
+    const params = node.properties;
+    if (defKey === "detection.check_color") {
+      window.pywebview.api.preview_color(params.mode, params.rect, params.hwnd_var)
+        .then(res => {
+          if (res && res.ok) {
+            const d = res.data;
+            area.innerHTML = `<div>
+              <div style="display:flex;align-items:center;gap:8px;justify-content:center">
+                <div style="width:24px;height:24px;border-radius:4px;background:${d.color || '#000'};border:1px solid var(--border)"></div>
+                <span class="preview-value">${d.color || 'N/A'}</span>
+              </div>
+              ${d.mean_color ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">均值: ${d.mean_color}</div>` : ""}
+              ${d.image_base64 ? `<img src="data:image/png;base64,${d.image_base64}" style="margin-top:6px;max-height:60px;border-radius:4px">` : ""}
+            </div>`;
+          } else {
+            area.innerHTML = `<span style="color:var(--danger)">${res?.error || '预览失败'}</span>`;
+          }
+        })
+        .catch(err => { area.innerHTML = `<span style="color:var(--danger)">${err.message || err}</span>`; });
+    } else if (defKey === "detection.check_ocr") {
+      window.pywebview.api.preview_ocr(params.mode, params.rect, params.hwnd_var, params.engine)
+        .then(res => {
+          if (res && res.ok) {
+            const d = res.data;
+            area.innerHTML = `<div>
+              <div class="preview-value">${d.text || '(空)'}</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:4px">
+                置信度: ${d.confidence?.toFixed(1) || '-'}% | 耗时: ${d.cost_ms?.toFixed(1) || '-'}ms
+              </div>
+            </div>`;
+          } else {
+            area.innerHTML = `<span style="color:var(--danger)">${res?.error || '预览失败'}</span>`;
+          }
+        })
+        .catch(err => { area.innerHTML = `<span style="color:var(--danger)">${err.message || err}</span>`; });
+    } else {
+      area.innerHTML = '<span style="color:var(--text-muted)">此节点暂不支持预览</span>';
+    }
+  } else {
+    // 无后端模拟
+    setTimeout(() => {
+      area.innerHTML = `<div>
+        <div class="preview-value" style="color:var(--text-muted)">需要后端支持</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px">请在 pywebview 环境中使用</div>
+      </div>`;
+    }, 500);
+  }
+}
+
+// ======================== 块编辑器（占位） ========================
+
+function openBlockEditor(nodeId) {
+  const node = lgGraph?.graph?.getNodeById(nodeId);
+  if (!node) return;
+  showToast("块编辑器将在阶段2实现", "info");
+  // 阶段2实现：创建模态框，内嵌极简版块编辑器
+  // 当前占位：打开文件选择
+  if (node.properties.path) {
+    showToast(`当前路径: ${node.properties.path}`, "info");
+  }
+}
+
+function browseMacroPath(nodeId) {
+  // 通过后端获取宏文件列表
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.list_macros) {
+    window.pywebview.api.list_macros().then(res => {
+      if (res && res.ok && res.data.length > 0) {
+        showMacroPicker(nodeId, res.data);
+      } else {
+        showToast("未找到宏文件", "warning");
+      }
+    }).catch(() => showToast("无法访问宏目录", "error"));
+  } else {
+    showToast("需要后端支持以浏览宏文件", "info");
+  }
+}
+
+function showMacroPicker(nodeId, macros) {
+  const modal = document.createElement("div");
+  modal.className = "modal-overlay";
+  let listHtml = macros.map(m =>
+    `<div class="ctx-item" data-path="${m.path}" style="padding:10px 14px">${m.name}</div>`
+  ).join("");
+  modal.innerHTML = `
+    <div class="modal-content" style="width:400px;max-height:500px">
+      <div class="modal-header"><span>选择宏文件</span><button class="modal-close" onclick="this.closest('.modal-overlay').remove()"><i class="fa-solid fa-xmark"></i></button></div>
+      <div class="modal-body" style="padding:4px 0;max-height:380px;overflow-y:auto">${listHtml}</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-path]").forEach(item => {
+    item.addEventListener("click", () => {
+      const node = lgGraph?.graph?.getNodeById(nodeId);
+      if (node) {
+        node.properties.path = item.dataset.path;
+        renderPropertyPanel(node);
+      }
+      modal.remove();
+    });
+  });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+}
+
+// ======================== 右键菜单 ========================
+
+let contextTarget = null;
+
+function showContextMenu(x, y, items) {
+  const menu = document.getElementById("context-menu");
+  menu.innerHTML = items.map(item => {
+    if (item === "---") return '<div class="ctx-sep"></div>';
+    return `<div class="ctx-item ${item.danger ? 'danger' : ''}" data-action="${item.action}">
+      <i class="${item.icon || 'fa-solid fa-circle'}"></i>
+      <span>${item.label}</span>
+      ${item.shortcut ? `<span class="shortcut">${item.shortcut}</span>` : ""}
+    </div>`;
+  }).join("");
+  menu.style.display = "block";
+  menu.style.left = Math.min(x, window.innerWidth - 180) + "px";
+  menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 10) + "px";
+
+  menu.querySelectorAll(".ctx-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const action = el.dataset.action;
+      handleContextAction(action);
+      menu.style.display = "none";
+    });
+  });
+}
+
+function hideContextMenu() {
+  document.getElementById("context-menu").style.display = "none";
+}
+
+function handleContextAction(action) {
+  if (!contextTarget && action !== "paste" && action !== "select_all") return;
+  switch (action) {
+    case "delete":
+      if (contextTarget) { lgGraph.graph.remove(contextTarget); updateStatusBar(); selectedNode = null; renderPropertyPanel(null); }
+      break;
+    case "duplicate":
+      if (contextTarget) {
+        const cloned = contextTarget.clone();
+        cloned.pos[0] += 30; cloned.pos[1] += 30;
+        lgGraph.graph.add(cloned);
+        updateStatusBar();
+      }
+      break;
+    case "copy":
+      showToast("已复制节点", "info");
+      break;
+    case "paste":
+      showToast("粘贴功能需后端配合", "info");
+      break;
+    case "select_all":
+      lgGraph.graph._nodes.forEach(n => n.selected = true);
+      break;
+  }
+}
+
+// ======================== 后端事件回调 ========================
+
+window._automationEvents = {
+  onNodeEnter: (data) => {
+    const node = lgGraph?.graph?.getNodeById(parseInt(data.node_id));
+    if (node) {
+      clearNodeHighlights();
+      node.boxcolor = "#ffffffff";
+      selectedNode = node;
+      renderPropertyPanel(node);
+    }
+  },
+  onNodeExit: (data) => {
+    const node = lgGraph?.graph?.getNodeById(parseInt(data.node_id));
+    if (node) node.boxcolor = null;
+  },
+  onCheckResult: (data) => {
+    const node = lgGraph?.graph?.getNodeById(parseInt(data.node_id));
+    if (node) {
+      node.boxcolor = data.found ? "#22c55e" : "#ef4444";
+      setTimeout(() => { node.boxcolor = null; }, 600);
+    }
+  },
+  onTaskStatus: (data) => {
+    // 异步任务状态变化
+  },
+  onMonitorTrigger: (data) => {
+    const node = lgGraph?.graph?.getNodeById(parseInt(data.node_id));
+    if (node) {
+      node.boxcolor = "#06b6d4";
+      setTimeout(() => { node.boxcolor = null; }, 800);
+    }
+  },
+  onError: (data) => {
+    setExecutionState("error");
+    showToast(data.message || "执行出错", "error");
+  },
+  onScriptEnd: (data) => {
+    clearNodeHighlights();
+    setExecutionState("idle");
+    showToast(data.success ? "脚本执行完成" : "脚本执行异常", data.success ? "success" : "warning");
+  },
+};
+
+// ======================== 初始化 ========================
+
+function initEditor() {
+  // 1. 注册所有节点类型
+  registerAllNodes();
+
+  // 2. 初始化 LiteGraph
+  const canvasEl = document.getElementById("node-canvas");
+  lgGraph = new LGraph();
+  const canvas = new LGraphCanvas(canvasEl, lgGraph);
+
+  // 画布配置
+  canvas.background_image = null;
+  canvas.render_canvas_border = false;
+  canvas.render_connections_sharp = true;
+  canvas.connection_width = 2;
+  canvas.highquality_render = true;
+  canvas.always_render_background = false;
+
+  // 端口类型颜色映射
+  canvas.types_colors = {
+    flow: { color: "#94a3b8" },
+    boolean: { color: "#ef4444" },
+    number: { color: "#22c55e" },
+    string: { color: "#60a5fa" },
+    any: { color: "#94a3b8" },
+  };
+
+  lgGraph.start();
+
+  // 3. 渲染工具箱
+  renderToolbox();
+
+  // 4. 画布拖拽放置节点
+  const canvasContainer = document.getElementById("canvas-container");
+  canvasContainer.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  canvasContainer.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const nodeType = e.dataTransfer.getData("node-type");
+    if (!nodeType) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const x = (e.clientX - rect.left - canvas.offset_x) / canvas.scale;
+    const y = (e.clientY - rect.top - canvas.offset_y) / canvas.scale;
+    const node = lgGraph.graph.createNode(nodeType);
+    if (!node) { showToast(`未知节点: ${nodeType}`, "error"); return; }
+    node.pos[0] = x - node.size[0] / 2;
+    node.pos[1] = y - node.size[1] / 2;
+    lgGraph.graph.add(node);
+    canvas.setNodeSelection(node, true);
+    updateStatusBar();
+  });
+
+  // 5. 节点选择事件 → 属性面板
+  canvas.onNodeSelected = (node) => {
+    selectedNode = node;
+    renderPropertyPanel(node);
+  };
+  canvas.onNodeDeselected = (node) => {
+    if (selectedNode === node) {
+      selectedNode = null;
+      renderPropertyPanel(null);
+    }
+  };
+
+  // 6. 图变更事件 → 状态栏
+  lgGraph.onNodeAdded = updateStatusBar;
+  lgGraph.onNodeRemoved = updateStatusBar;
+  lgGraph.onConnectionChange = updateStatusBar;
+
+  // 7. 光标位置追踪
+  canvasEl.addEventListener("mousemove", (e) => {
+    const rect = canvasEl.getBoundingClientRect();
+    const graphX = (e.clientX - rect.left - canvas.offset_x) / canvas.scale;
+    const graphY = (e.clientY - rect.top - canvas.offset_y) / canvas.scale;
+    updateCursorCoord(graphX, graphY);
+  });
+
+  // 8. 右键菜单
+  canvasEl.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const node = canvas.getNodeAt(e.offsetX, e.offsetY);
+    contextTarget = node || null;
+    if (node) {
+      showContextMenu(e.clientX, e.clientY, [
+        { label: "复制", icon: "fa-regular fa-copy", action: "copy", shortcut: "Ctrl+C" },
+        { label: "重复", icon: "fa-regular fa-clone", action: "duplicate", shortcut: "Ctrl+D" },
+        "---",
+        { label: "删除节点", icon: "fa-solid fa-trash-can", action: "delete", danger: true, shortcut: "Del" },
+      ]);
+    } else {
+      showContextMenu(e.clientX, e.clientY, [
+        { label: "粘贴", icon: "fa-regular fa-paste", action: "paste", shortcut: "Ctrl+V" },
+        { label: "全选", icon: "fa-solid fa-object-group", action: "select_all", shortcut: "Ctrl+A" },
+      ]);
+    }
+  });
+
+  // 9. 点击空白关闭右键菜单和属性面板
+  canvasEl.addEventListener("mousedown", (e) => {
+    hideContextMenu();
+  });
+
+  // 10. 工具栏按钮
+  document.getElementById("btn-run").addEventListener("click", runGraph);
+  document.getElementById("btn-stop").addEventListener("click", stopGraph);
+  document.getElementById("btn-pause").addEventListener("click", pauseGraph);
+  document.getElementById("btn-export").addEventListener("click", exportGraph);
+  document.getElementById("btn-import").addEventListener("click", importGraph);
+  document.getElementById("btn-save").addEventListener("click", saveGraph);
+  document.getElementById("file-input-import").addEventListener("change", handleFileImport);
+
+  // 11. 搜索框
+  document.getElementById("node-search-input").addEventListener("input", (e) => {
+    renderToolbox(e.target.value);
+  });
+
+  // 12. 坐标拾取事件
+  document.getElementById("pick-canvas").addEventListener("click", handlePickClick);
+  document.getElementById("pick-canvas").addEventListener("mousemove", handlePickMove);
+  document.getElementById("pick-canvas").addEventListener("mousedown", handlePickMouseDown);
+  document.getElementById("pick-canvas").addEventListener("mouseup", handlePickMouseUp);
+  document.getElementById("pick-cancel").addEventListener("click", cancelPick);
+
+  // 13. 全局快捷键
+  document.addEventListener("keydown", (e) => {
+    // 拾取模式下的 ESC
+    if (pickState.active && e.key === "Escape") { cancelPick(); return; }
+
+    // 避免在输入框中触发快捷键
+    const tag = e.target.tagName.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+
+    if (e.key === "F5") { e.preventDefault(); runGraph(); }
+    if (e.key === "F6") { e.preventDefault(); pauseGraph(); }
+    if (e.key === "Escape") { stopGraph(); hideContextMenu(); }
+    if (e.key === "Delete" && selectedNode) {
+      lgGraph.graph.remove(selectedNode);
+      selectedNode = null;
+      renderPropertyPanel(null);
+      updateStatusBar();
+    }
+    if (e.ctrlKey && e.key === "s") { e.preventDefault(); saveGraph(); }
+    if (e.ctrlKey && e.key === "e") { e.preventDefault(); exportGraph(); }
+    if (e.ctrlKey && e.key === "a") {
+      e.preventDefault();
+      lgGraph.graph._nodes.forEach(n => n.selected = true);
+    }
+    if (e.ctrlKey && e.key === "d" && selectedNode) {
+      e.preventDefault();
+      const cloned = selectedNode.clone();
+      cloned.pos[0] += 30; cloned.pos[1] += 30;
+      lgGraph.graph.add(cloned);
+      canvas.setNodeSelection(cloned, true);
+      selectedNode = cloned;
+      renderPropertyPanel(cloned);
+      updateStatusBar();
+    }
+  });
+
+  // 14. 点击其他区域关闭右键菜单
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#context-menu")) hideContextMenu();
+  });
+
+  // 15. 窗口尺寸变化
+  window.addEventListener("resize", () => {
+    canvas.resize();
+    if (pickState.active) {
+      const c = document.getElementById("pick-canvas");
+      c.width = window.innerWidth; c.height = window.innerHeight;
+    }
+  });
+
+  // 初始状态
+  setExecutionState("idle");
+  updateStatusBar();
+
+  // 尝试从后端加载节点定义（插件系统支持）
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.get_node_definitions) {
+    window.pywebview.api.get_node_definitions().then(res => {
+      if (res && res.ok && res.data) {
+        // 合并后端下发的节点定义到前端
+        // renderToolbox 会在合并后重新渲染
+        showToast(`已从后端加载 ${Object.keys(res.data.nodes || {}).length} 个节点定义`, "success");
+      }
+    }).catch(() => { /* 静默失败，使用内置定义 */ });
+  }
+
+  console.log("[自动化编辑器] V5.0 初始化完成");
+}
+
+// 页面加载后初始化
+document.addEventListener("DOMContentLoaded", initEditor);
+</script>
+</body>
+</html>

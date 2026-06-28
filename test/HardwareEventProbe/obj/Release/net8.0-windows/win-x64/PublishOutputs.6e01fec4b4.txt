@@ -1,0 +1,5 @@
+D:\360MoveData\Users\12849\Desktop\demo\prod\Macro\artifacts\local-run\HardwareEventProbe\HardwareEventProbe.exe
+D:\360MoveData\Users\12849\Desktop\demo\prod\Macro\artifacts\local-run\HardwareEventProbe\HardwareEventProbe.dll
+D:\360MoveData\Users\12849\Desktop\demo\prod\Macro\artifacts\local-run\HardwareEventProbe\HardwareEventProbe.deps.json
+D:\360MoveData\Users\12849\Desktop\demo\prod\Macro\artifacts\local-run\HardwareEventProbe\HardwareEventProbe.runtimeconfig.json
+D:\360MoveData\Users\12849\Desktop\demo\prod\Macro\artifacts\local-run\HardwareEventProbe\HardwareEventProbe.pdb

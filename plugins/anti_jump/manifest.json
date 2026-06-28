@@ -1,0 +1,13 @@
+{
+  "id": "anti_jump",
+  "name": "防跳秒",
+  "version": "1.0.0",
+  "author": "宏驱动",
+  "description": "检测黑屏/亮屏信号并自动锁帧恢复，防止游戏跳秒。支持按键+点击组合触发或纯黑屏监听模式",
+  "icon": "fa-solid fa-clock",
+  "color": "#f59e0b",
+  "nodes": ["anti_jump"],
+  "node_display_names": {"anti_jump": "防跳秒"},
+  "backend": "backend.py",
+  "minAppVersion": "2.8"
+}

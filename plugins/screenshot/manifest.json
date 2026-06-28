@@ -1,0 +1,13 @@
+{
+  "id": "screenshot",
+  "name": "截图",
+  "version": "1.0.0",
+  "author": "宏驱动",
+  "description": "多种截图方式：全屏、区域、窗口截图，支持坐标模式和OCR识别，截图保存为变量可与邮件插件联动",
+  "icon": "fa-solid fa-camera",
+  "color": "#22c55e",
+  "nodes": ["screenshot_capture", "screenshot_ocr"],
+  "node_display_names": {"screenshot_capture": "截图保存", "screenshot_ocr": "截图OCR"},
+  "backend": "backend.py",
+  "minAppVersion": "2.5"
+}
