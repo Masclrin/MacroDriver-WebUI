@@ -35,12 +35,23 @@
 #define ACT_SET_CURSOR_POS        7   /* SetCursorPos,         p1=x, p2=y */
 #define ACT_INTERCEPTION_KEY      8   /* Interception key,     p1=scan, p2=up(1)/down(0), p3=extended */
 #define ACT_INTERCEPTION_MOUSE    9   /* Interception mouse,   p1=left(1)/right(0), p2=up(1)/down(0) */
+#define ACT_RTSS_WAIT_FRAMES     10   /* RTSS 帧等待,          p1=帧数; 完成后重置 base_qpc 为帧对齐瞬间 */
 
 /* status */
 #define ST_OK                 0
 #define ST_SENDINPUT_FAILED   1
 #define ST_INTERCEPTION_FAIL  2
 #define ST_SKIPPED            3
+#define ST_SEGMENT_START      0x80000000u  /* 高位标记: 段起点事件 (ACT_RTSS_WAIT_FRAMES 后的首个事件) */
+
+/* RTSS 共享内存常量 */
+#define RTSS_MAP_NAME         L"RTSSSharedMemoryV2"
+#define RTSS_SIGNATURE        0x52545353u   /* 'RTSS' */
+#define RTSS_MIN_VER          0x00020000u
+/* entry 内字段偏移 (与 _RtssSync._current_tick 对齐) */
+#define RTSS_OFF_T1           0x110u  /* t1: 帧开始 tick */
+#define RTSS_OFF_FR           0x114u  /* fr: 已渲染帧数 (每帧必 +1) */
+#define RTSS_OFF_FT           0x118u  /* ft: 帧时间 us */
 
 /* Interception 常量 (与 input_interception.py 对齐) */
 #define IC_KEYBOARD_START   1
@@ -106,6 +117,17 @@ static CRITICAL_SECTION g_exec_lock;         /* 互斥: 保证同一时刻只有
 static bool    g_exec_lock_inited  = false;
 static volatile LONG  g_lock_held  = 0;      /* 是否持有 g_exec_lock (防止 double-release) */
 static volatile LONG  g_keep_pressed = 0;    /* 1=standby 线程退出时不补发抬起 (分段执行模式, 由 Python 层统一兜底释放) */
+static volatile LONG  g_enable_stats = 1;    /* 1=记录 actual_qpc/injection_done_qpc (Python 用于抖动统计); 0=跳过, 榨干 ~10ns 精度 */
+
+/* ========== RTSS 共享内存全局 ========== */
+/* Python 层 _RtssSync.detect_entry_offset 预侦测目标游戏 entry 后, 把该 entry 的
+ * 起始偏移(base)传给 C 层。C 层从 base 读取 (t1, fr, ft) 三字段指纹做帧推进检测,
+ * 与 Python _RtssSync._wait_one_frame 完全一致 —— 单独比较 t1 会漏帧 (高刷新率下
+ * t1 多帧不变, 但 fr 每帧必 +1)。 */
+static HANDLE  g_rtss_map_handle = NULL;
+static void   *g_rtss_view       = NULL;     /* MapViewOfFile 返回的指针 */
+static size_t  g_rtss_entry_offset = 0;      /* 目标 entry 起始偏移 (entry base) */
+static int     g_rtss_fallback_ms_per_frame = 16;  /* RTSS 不可用时的回退帧时间 */
 
 /* ========== Interception 全局 ========== */
 static HMODULE g_ic_dll = NULL;
@@ -165,6 +187,126 @@ static inline uint64_t ns_to_qpc(uint64_t offset_ns) {
     /* offset_ns * qpc_freq / 1e9
      * offset_ns 最大约 10s = 1e10, qpc_freq 最大约 1e7, 乘积 1e17 < uint64_t 上限 1.8e19, 不会溢出 */
     return offset_ns * g_qpc_freq / 1000000000ULL;
+}
+
+/* ========== RTSS 共享内存辅助 ==========
+ * 共享内存布局 (与 _RtssSync._current_tick 对齐):
+ *   offset 0x00: signature (uint32, 'RTSS' = 0x52545353)
+ *   offset 0x04: version   (uint32, >= 0x00020000)
+ *   offset 0x08: entry_size (uint32)
+ *   offset 0x0C: arr_offset (uint32, entry 数组起始偏移)
+ *   offset 0x10: arr_count  (uint32, entry 数量)
+ * 每个 entry:
+ *   base+0x00: pid (uint32, 0=空槽)
+ *   base+0x04: name[260] (char)
+ *   base+0x110: t1 (uint32, 帧开始 tick)
+ *   base+0x114: fr (uint32, 已渲染帧数)
+ *   base+0x118: ft (uint32, 帧时间 us)
+ * Python 预侦测时把目标 entry 的 (base + 0x110) 传给 C, C 直接读该地址的 t1。
+ */
+static bool rtss_open(void) {
+    if (g_rtss_view) return true;
+    HANDLE h = OpenFileMappingW(FILE_MAP_READ, FALSE, RTSS_MAP_NAME);
+    if (!h) return false;
+    void *view = MapViewOfFile(h, FILE_MAP_READ, 0, 0, 0);
+    if (!view) {
+        CloseHandle(h);
+        return false;
+    }
+    /* 校验 signature 和 version */
+    uint32_t sig = *(volatile uint32_t*)((char*)view + 0x00);
+    uint32_t ver = *(volatile uint32_t*)((char*)view + 0x04);
+    if (sig != RTSS_SIGNATURE || ver < RTSS_MIN_VER) {
+        UnmapViewOfFile(view);
+        CloseHandle(h);
+        return false;
+    }
+    g_rtss_map_handle = h;
+    g_rtss_view = view;
+    return true;
+}
+
+static void rtss_close(void) {
+    if (g_rtss_view) {
+        UnmapViewOfFile(g_rtss_view);
+        g_rtss_view = NULL;
+    }
+    if (g_rtss_map_handle) {
+        CloseHandle(g_rtss_map_handle);
+        g_rtss_map_handle = NULL;
+    }
+    g_rtss_entry_offset = 0;
+}
+
+/* 三字段指纹 (t1, fr, ft) —— 与 Python _RtssSync._current_tick 返回的元组对齐。
+ * 任一字段变化即认为帧推进; fr 每渲染一帧必 +1, 是最稳定的推进信号。 */
+typedef struct {
+    uint32_t t1;
+    uint32_t fr;
+    uint32_t ft;
+} RtssFingerprint;
+
+/* 读取当前 entry 的三字段指纹。g_rtss_view 或 entry_offset 无效时返回 0。 */
+static inline int rtss_read_fp(RtssFingerprint *out) {
+    if (!g_rtss_view || g_rtss_entry_offset == 0) return 0;
+    char *base = (char*)g_rtss_view + g_rtss_entry_offset;
+    out->t1 = *(volatile uint32_t*)(base + RTSS_OFF_T1);
+    out->fr = *(volatile uint32_t*)(base + RTSS_OFF_FR);
+    out->ft = *(volatile uint32_t*)(base + RTSS_OFF_FT);
+    return 1;
+}
+
+static inline int rtss_fp_eq(const RtssFingerprint *a, const RtssFingerprint *b) {
+    return a->t1 == b->t1 && a->fr == b->fr && a->ft == b->ft;
+}
+
+/* fallback: RTSS 不可用或读取异常时, 按 g_rtss_fallback_ms_per_frame × n 自旋等待。
+ * 返回 1=正常完成, 0=被 stop 中断。 */
+static int rtss_wait_frames_fallback(int n, uint64_t *out_frame_aligned_qpc) {
+    uint64_t start = qpc_now();
+    uint64_t total_ns = (uint64_t)n * (uint64_t)g_rtss_fallback_ms_per_frame * 1000000ULL;
+    uint64_t target = start + ns_to_qpc(total_ns);
+    while (1) {
+        if (g_stop_flag) return 0;
+        if (qpc_now() >= target) break;
+        _mm_pause();
+    }
+    if (out_frame_aligned_qpc) *out_frame_aligned_qpc = qpc_now();
+    return 1;
+}
+
+/* RTSS 帧等待: 自旋直到指纹变化 n 次, 或 g_stop_flag 被置位。
+ * 返回 1=正常完成, 0=被 stop 中断。
+ * g_rtss_view 不可用或读取异常时退化到固定 ms 自旋。 */
+static int rtss_wait_frames(int n, uint64_t *out_frame_aligned_qpc) {
+    if (n <= 0) {
+        if (out_frame_aligned_qpc) *out_frame_aligned_qpc = qpc_now();
+        return 1;
+    }
+    if (g_rtss_view && g_rtss_entry_offset > 0) {
+        RtssFingerprint last;
+        if (!rtss_read_fp(&last)) {
+            return rtss_wait_frames_fallback(n, out_frame_aligned_qpc);
+        }
+        int waited = 0;
+        while (waited < n) {
+            if (g_stop_flag) return 0;
+            RtssFingerprint curr;
+            if (!rtss_read_fp(&curr)) {
+                /* 中途读取异常 → 走 fallback 完成剩余帧 */
+                return rtss_wait_frames_fallback(n - waited, out_frame_aligned_qpc);
+            }
+            if (!rtss_fp_eq(&curr, &last)) {
+                last = curr;
+                waited++;
+            }
+            _mm_pause();
+        }
+    } else {
+        return rtss_wait_frames_fallback(n, out_frame_aligned_qpc);
+    }
+    if (out_frame_aligned_qpc) *out_frame_aligned_qpc = qpc_now();
+    return 1;
 }
 
 /* ========== Interception 加载 ========== */
@@ -560,29 +702,47 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
     SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << g_selected_core);
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
-    /* 2. 记录起点 QPC */
-    uint64_t start_qpc = qpc_now();
+    /* 2. 记录段起点 QPC (base_qpc)。
+     *    初始为线程启动时刻; 遇到 ACT_RTSS_WAIT_FRAMES 后重置为帧对齐瞬间。
+     *    段内事件 target = base_qpc + ns_to_qpc(offset_ns), offset_ns 是段内偏移。
+     *    next_is_segment_start: 标记下一个事件为段起点 (用于段起点偏移统计)。 */
+    uint64_t base_qpc = qpc_now();
+    bool next_is_segment_start = false;
 
-    /* 3. 预计算每个事件的绝对 target_qpc */
     int n = (int)g_event_count;
-    for (int i = 0; i < n; i++) {
-        g_timeline[i].offset_ns; /* 已存 offset_ns, 但我们需要 target_qpc 存到 results */
-        g_results[i].target_qpc = start_qpc + ns_to_qpc(g_timeline[i].offset_ns);
-    }
 
-    /* 4. 自旋消费循环 */
+    /* 3. 自旋消费循环 (target 动态计算, 因段间 base_qpc 会重置) */
     for (int i = 0; i < n; i++) {
         if (g_stop_flag) {
             g_results[i].status = ST_SKIPPED;
             continue;
         }
 
-        uint64_t target = g_results[i].target_qpc;
+        /* 3a. RTSS 帧等待事件: 自旋等 N 帧后重置 base_qpc 为帧对齐瞬间。
+         *     该事件本身无注入, 仅记录时序; 完成后下一个事件标记为段起点。 */
+        if (g_timeline[i].action_type == ACT_RTSS_WAIT_FRAMES) {
+            uint64_t frame_aligned_qpc = 0;
+            int ok = rtss_wait_frames(g_timeline[i].param1, &frame_aligned_qpc);
+            if (!ok) {
+                g_results[i].status = ST_SKIPPED;
+                continue;
+            }
+            base_qpc = frame_aligned_qpc;
+            g_results[i].target_qpc    = frame_aligned_qpc;
+            g_results[i].actual_qpc    = frame_aligned_qpc;
+            g_results[i].injection_done_qpc = frame_aligned_qpc;
+            g_results[i].action_type   = ACT_RTSS_WAIT_FRAMES;
+            g_results[i].status        = ST_OK;
+            next_is_segment_start = true;
+            continue;
+        }
+
+        /* 3b. 普通事件: target = base_qpc + offset_ns (段内偏移) */
+        uint64_t target = base_qpc + ns_to_qpc(g_timeline[i].offset_ns);
         uint64_t now = qpc_now();
 
         /* 长等待优化: > 2ms 用 WaitForSingleObject 粗睡眠, 最后 100us 自旋 */
         uint64_t coarse_threshold_qpc = ns_to_qpc((uint64_t)STANDBY_COARSE_THRESHOLD * 1000);
-        uint64_t spin_threshold_qpc   = ns_to_qpc((uint64_t)STANDBY_SPIN_THRESHOLD * 1000);
 
         if (target > now + coarse_threshold_qpc && g_coarse_timer) {
             /* 粗睡眠: 每次 sleep 到距离 target 还剩 ~2ms */
@@ -614,10 +774,14 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
             continue;
         }
 
-        /* 到点, 记录 actual_qpc */
-        g_results[i].actual_qpc = qpc_now();
+        /* 到点, 记录 actual_qpc + target_qpc (Python 用于抖动计算)。
+         * g_enable_stats=0 时跳过 qpc_now() 以榨干最后 ~10ns 精度 (统计关闭场景)。 */
+        g_results[i].target_qpc = target;
+        g_results[i].actual_qpc = g_enable_stats ? qpc_now() : 0;
         g_results[i].action_type = g_timeline[i].action_type;
-        g_results[i].status = ST_OK;
+        /* 段起点事件在 status 高位打标记, 供 Python 单独统计段起点偏移 */
+        g_results[i].status = next_is_segment_start ? (ST_OK | ST_SEGMENT_START) : ST_OK;
+        next_is_segment_start = false;
 
         /* 执行注入 */
         int32_t p1 = g_timeline[i].param1;
@@ -686,8 +850,8 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
                 g_results[i].status = ST_SKIPPED;
                 break;
         }
-        /* 记录注入完成时间 (端到端延迟测量) */
-        g_results[i].injection_done_qpc = qpc_now();
+        /* 记录注入完成时间 (端到端延迟测量)。g_enable_stats=0 时跳过。 */
+        g_results[i].injection_done_qpc = g_enable_stats ? qpc_now() : 0;
     }
 
     /* 5. 退出前补发所有"按下未抬起"的抬起事件。
@@ -741,6 +905,8 @@ static PyObject* py_init(PyObject* self, PyObject* args) {
     }
     /* 尝试加载 Interception (失败不报错, 运行时回退 SendInput) */
     ic_load();
+    /* 尝试打开 RTSS 共享内存 (失败不报错, 段间帧等待走 fallback ms 自旋) */
+    rtss_open();
     Py_RETURN_NONE;
 }
 
@@ -792,6 +958,80 @@ static PyObject* py_submit_timeline(PyObject* self, PyObject* args) {
     g_finished = 0;
     g_stop_flag = 0;
     track_reset();   /* 新宏开始: 清空按下状态表, 防止上次残留影响本次补发 */
+    return PyLong_FromSsize_t(n);
+}
+
+/* set_rtss_config(entry_offset: int, fallback_ms_per_frame: int) → None
+ * entry_offset: Python _RtssSync.detect_entry_offset 返回的目标 entry 起始偏移 (entry base);
+ *               C 层从该偏移读 (t1, fr, ft) 三字段指纹做帧推进检测。
+ *               传 0 表示让 C 层走 fallback 路径 (固定 ms 自旋)。
+ * fallback_ms_per_frame: RTSS 共享内存不可用时的回退帧时间 (ms)。
+ * 若共享内存尚未打开, 此处尝试打开一次。 */
+static PyObject* py_set_rtss_config(PyObject* self, PyObject* args) {
+    long long entry_offset;
+    int fallback_ms;
+    if (!PyArg_ParseTuple(args, "Li", &entry_offset, &fallback_ms)) return NULL;
+    if (!g_rtss_view) rtss_open();
+    g_rtss_entry_offset = (size_t)entry_offset;
+    if (fallback_ms > 0) g_rtss_fallback_ms_per_frame = fallback_ms;
+    Py_RETURN_NONE;
+}
+
+/* set_stats_enabled(enabled: int) → None
+ * enabled=1: 记录 actual_qpc / injection_done_qpc (默认, Python 用于抖动统计)
+ * enabled=0: 跳过两次 qpc_now() 调用, 榨干最后 ~10ns 注入精度 (统计关闭场景)
+ * 由 Python 层根据 ENABLE_TEST_TRACE 调用: 开启测试追踪时同步开启统计,
+ * 关闭时同步关闭, 既减少 QPC 开销又能在生产场景获得极致精度。 */
+static PyObject* py_set_stats_enabled(PyObject* self, PyObject* args) {
+    int enabled;
+    if (!PyArg_ParseTuple(args, "i", &enabled)) return NULL;
+    g_enable_stats = enabled ? 1 : 0;
+    Py_RETURN_NONE;
+}
+
+/* submit_segmented_timeline(events: list, base_offset_ns: int) → int (事件数) 或 -1
+ * 与 submit_timeline 区别: 不调 track_reset, 保留跨段按键状态。
+ * 用于含 ACT_RTSS_WAIT_FRAMES 的扁平化分段时间线 (B 方案完全下沉路径)。 */
+static PyObject* py_submit_segmented_timeline(PyObject* self, PyObject* args) {
+    PyObject* events_list;
+    long long base_offset_ns;
+    if (!PyArg_ParseTuple(args, "OL", &events_list, &base_offset_ns)) return NULL;
+
+    if (!g_timeline) {
+        PyErr_SetString(PyExc_RuntimeError, "standby engine not initialized");
+        return NULL;
+    }
+    if (!PyList_Check(events_list)) {
+        PyErr_SetString(PyExc_TypeError, "events must be a list");
+        return NULL;
+    }
+
+    Py_ssize_t n = PyList_Size(events_list);
+    if (n > MAX_TIMELINE_EVENTS) {
+        PyErr_Format(PyExc_ValueError, "events count %zd exceeds max %d", n, MAX_TIMELINE_EVENTS);
+        return NULL;
+    }
+
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject* item = PyList_GetItem(events_list, i);
+        if (!PyTuple_Check(item) || PyTuple_Size(item) < 5) {
+            PyErr_Format(PyExc_TypeError, "event[%zd] must be tuple(offset_ns, action_type, p1, p2, p3)", i);
+            return NULL;
+        }
+        long long off_ns;
+        int atype, p1, p2, p3;
+        if (!PyArg_ParseTuple(item, "Liiii", &off_ns, &atype, &p1, &p2, &p3)) return NULL;
+        g_timeline[i].offset_ns   = (uint64_t)(off_ns + base_offset_ns);
+        g_timeline[i].action_type = (uint32_t)atype;
+        g_timeline[i].param1      = p1;
+        g_timeline[i].param2      = p2;
+        g_timeline[i].param3      = p3;
+    }
+
+    g_event_count = (LONG)n;
+    g_finished = 0;
+    g_stop_flag = 0;
+    /* 不调 track_reset: 分段宏整体一次提交, 段间按键状态需要保留 */
     return PyLong_FromSsize_t(n);
 }
 
@@ -935,6 +1175,9 @@ static PyMethodDef StandbyMethods[] = {
     {"init",                      py_init,                      METH_NOARGS,  "Initialize standby engine"},
     {"auto_pick_core",            py_auto_pick_core,            METH_NOARGS,  "Auto pick best P-core"},
     {"submit_timeline",           py_submit_timeline,           METH_VARARGS, "Submit timeline events"},
+    {"submit_segmented_timeline", py_submit_segmented_timeline, METH_VARARGS, "Submit segmented timeline (no track_reset)"},
+    {"set_rtss_config",           py_set_rtss_config,           METH_VARARGS, "Set RTSS tick offset and fallback ms"},
+    {"set_stats_enabled",         py_set_stats_enabled,         METH_VARARGS, "Enable/disable stats collection (actual_qpc/injection_done_qpc)"},
     {"start",                     py_start,                     METH_VARARGS, "Start standby thread"},
     {"stop",                      py_stop,                      METH_NOARGS,  "Stop standby thread"},
     {"is_finished",               py_is_finished,               METH_NOARGS,  "Check if finished"},
@@ -979,6 +1222,8 @@ PyMODINIT_FUNC PyInit__standby_engine(void) {
     PyModule_AddIntConstant(m, "ACT_SET_CURSOR_POS",       ACT_SET_CURSOR_POS);
     PyModule_AddIntConstant(m, "ACT_INTERCEPTION_KEY",     ACT_INTERCEPTION_KEY);
     PyModule_AddIntConstant(m, "ACT_INTERCEPTION_MOUSE",   ACT_INTERCEPTION_MOUSE);
+    PyModule_AddIntConstant(m, "ACT_RTSS_WAIT_FRAMES",     ACT_RTSS_WAIT_FRAMES);
+    PyModule_AddIntConstant(m, "ST_SEGMENT_START",         ST_SEGMENT_START);
     PyModule_AddIntConstant(m, "MAX_TIMELINE_EVENTS",      MAX_TIMELINE_EVENTS);
     return m;
 }

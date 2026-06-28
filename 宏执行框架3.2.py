@@ -1778,6 +1778,38 @@ class _RtssSync:
         """宏开始前重置帧基准（避免复用上次的 tick 导致漏帧）。"""
         self._last_tick = None
 
+    def detect_entry_offset(self):
+        """侦测目标游戏 entry, 返回该 entry 在共享内存内的起始偏移 (entry base)。
+        供 C 层 set_rtss_config 使用: C 层从该偏移读取 (t1, fr, ft) 三字段指纹,
+        与 _RtssSync._wait_one_frame 完全对齐 (单比较 t1 会漏帧)。
+        匹配优先级: RTSS_TARGET_GAMES > ft 最小且非 0 的 entry。
+        返回 0 表示未找到 (C 层走 fallback ms 自旋)。"""
+        if not self._ensure_open():
+            return 0
+        try:
+            if self._u32(0) != self._SIGNATURE or self._u32(4) < self._MIN_VER:
+                return 0
+            entry_sz = self._u32(8)
+            arr_off  = self._u32(0x0C)
+            arr_cnt  = self._u32(0x10)
+            best_off, best_ft = 0, 0xFFFFFFFF
+            for i in range(arr_cnt):
+                base = arr_off + i * entry_sz
+                if self._u32(base) == 0:
+                    continue
+                name = self._bytes_at(base + 4, 260).split(b'\x00')[0].decode('ascii', 'ignore').lower()
+                ft = self._u32(base + 0x118)
+                if ft == 0:
+                    continue
+                for g in RTSS_TARGET_GAMES:
+                    if g in name:
+                        return base   # 返回 entry base, C 层自加 0x110/0x114/0x118
+                if ft < best_ft:
+                    best_ft, best_off = ft, base
+            return best_off
+        except Exception:
+            return 0
+
     def _wait_one_frame(self, stop_event, timeout_s):
         """等待一帧更新信号。返回 True=检测到新帧，False=超时或stop。"""
         if not self._ensure_open():
@@ -1993,7 +2025,7 @@ def _append_standby_event(events, meta, offset_ns, item, use_ic_key, use_ic_mous
         meta.append((desc, offset_ns, atype))
 
 
-def compile_to_timeline(compiled_macro):
+def compile_to_timeline(compiled_macro, mode="normal"):
     """把 compiled_macro 转成 standby 时间线格式。
 
     compiled_macro 每项: (func, delay_s, type, desc, raw_info)
@@ -2003,6 +2035,14 @@ def compile_to_timeline(compiled_macro):
 
     时序语义: delay_s 是"执行本动作之后"到下一动作的间隔，与 execute_macro_once
     绝对时间线一致——动作先在当前 offset 触发，之后 offset 才向前推进 delay_s。
+
+    mode:
+      "normal"   — 单段宏。帧延迟 (delay_s<0) 视为 0, 由 Python 层段间处理
+                   (兼容旧 _execute_via_standby_segmented 路径)。
+      "segmented" — B 方案完全下沉路径。帧延迟转成 ACT_RTSS_WAIT_FRAMES 事件,
+                    并重置 offset_ns=0 开始新段。C 层 standby_thread 遇到该事件时
+                    自旋等 N 帧, 完成后重置 base_qpc 为帧对齐瞬间。
+                    段内事件 target = base_qpc + offset_ns (段内偏移)。
     """
     se = _standby_engine_module
     if se is None or se is False:
@@ -2011,30 +2051,50 @@ def compile_to_timeline(compiled_macro):
     events = []
     meta = []
     offset_ns = 0
+    segmented = (mode == "segmented")
+    ACT_RTSS_WAIT_FRAMES = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
     use_ic_key = STANDBY_USE_INTERCEPTION and USE_INTERCEPTION and USE_INTERCEPTION_KEYBOARD
     use_ic_mouse = STANDBY_USE_INTERCEPTION and USE_INTERCEPTION and USE_INTERCEPTION_MOUSE
 
+    def _emit_frame_barrier(frames, label):
+        """emit RTSS 帧等待事件, 重置段内 offset。仅 segmented 模式调用。"""
+        nonlocal offset_ns
+        events.append((0, ACT_RTSS_WAIT_FRAMES, frames, 0, 0))
+        meta.append((f"{label}+{frames}f", 0, ACT_RTSS_WAIT_FRAMES))
+        offset_ns = 0
+
     for item in compiled_macro:
         func, delay_s, atype, desc, raw_info = item
+        is_frame_barrier = segmented and delay_s < -0.5
 
         if atype == "wait":
-            # wait 无注入动作，仅推进时间线（帧延迟 delay_s<0 视为 0，帧等待在段间处理）
-            offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+            if is_frame_barrier:
+                _emit_frame_barrier(int(-delay_s + 0.5), "wait")
+            else:
+                offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
             continue
 
         if atype == "batch":
-            # 展开 batch：所有子动作在当前 offset 同时触发，之后推进总 delay
             if not isinstance(raw_info, dict):
-                offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+                if is_frame_barrier:
+                    _emit_frame_barrier(int(-delay_s + 0.5), "batch")
+                else:
+                    offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
                 continue
             for sub_item in raw_info.get("actions", []):
                 _append_standby_event(events, meta, offset_ns, sub_item, use_ic_key, use_ic_mouse, se)
-            offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+            if is_frame_barrier:
+                _emit_frame_barrier(int(-delay_s + 0.5), "batch")
+            else:
+                offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
             continue
 
-        # 普通动作：先在当前 offset 触发，再推进 delay_s（帧延迟不推进 offset，段间处理）
+        # 普通动作：先在当前 offset 触发，再推进 delay_s
         _append_standby_event(events, meta, offset_ns, item, use_ic_key, use_ic_mouse, se)
-        offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+        if is_frame_barrier:
+            _emit_frame_barrier(int(-delay_s + 0.5), desc)
+        else:
+            offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
 
     return events, meta
 
@@ -2085,6 +2145,10 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
             return True
         if len(events) > STANDBY_MAX_EVENTS:
             raise ValueError(f"时间线事件数 {len(events)} 超过上限 {STANDBY_MAX_EVENTS}")
+
+        # 1b. 按 ENABLE_TEST_TRACE 同步开关 C 层统计
+        if hasattr(se, "set_stats_enabled"):
+            se.set_stats_enabled(1 if local_test_trace else 0)
 
         # 2. 选核
         if STANDBY_FIXED_CORE >= 0:
@@ -2146,13 +2210,17 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
                         "step": i + 1,
                         "desc": desc,
                         "target_ms": off_ns / 1_000_000,
-                        "arrival_jitter_ns": arrival_jitter_ns,
-                        "e2e_jitter_ns": e2e_jitter_ns,
-                        "inject_cost_ns": inject_cost_ns,
+                        "arrival_jitter_us": arrival_jitter_ns / 1000.0,
+                        "e2e_jitter_us": e2e_jitter_ns / 1000.0,
+                        "inject_cost_us": inject_cost_ns / 1000.0,
                         "status": status,
                     })
 
-            if arrival_jitters_ns:
+            failed = sum(1 for r in results if r[4] != 0)
+            print(f"[standby] 完成: {macro_name} | events={len(results)} failed={failed}")
+            # 统计汇总依赖 actual_qpc/injection_done_qpc; 关闭 test_trace 时 C 层跳过 qpc_now(),
+            # 这里同步跳过汇总输出 (开关由 ENABLE_TEST_TRACE 控制, 对应"未开放参数"中的测试追踪)
+            if local_test_trace and arrival_jitters_ns:
                 arr_p50 = _stats.median(arrival_jitters_ns)
                 arr_p99 = _standby_percentile(arrival_jitters_ns, 0.99)
                 arr_p999 = _standby_percentile(arrival_jitters_ns, 0.999)
@@ -2163,25 +2231,23 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
                 e2e_max = max(e2e_jitters_ns)
                 inj_p50 = _stats.median(inject_costs_ns)
                 inj_max = max(inject_costs_ns)
-                failed = sum(1 for r in results if r[4] != 0)
-                print(f"[standby] 完成: {macro_name} | events={len(results)} failed={failed}")
-                print(f"  到达抖动(注入前): p50={arr_p50}ns p99={arr_p99}ns p99.9={arr_p999}ns max={arr_max}ns")
-                print(f"  端到端抖动(注入后): p50={e2e_p50}ns p99={e2e_p99}ns p99.9={e2e_p999}ns max={e2e_max}ns")
-                print(f"  注入耗时: p50={inj_p50}ns max={inj_max}ns")
+                print(f"  到达抖动(注入前): p50={arr_p50/1000:.2f}μs p99={arr_p99/1000:.2f}μs p99.9={arr_p999/1000:.2f}μs max={arr_max/1000:.2f}μs")
+                print(f"  端到端抖动(注入后): p50={e2e_p50/1000:.2f}μs p99={e2e_p99/1000:.2f}μs p99.9={e2e_p999/1000:.2f}μs max={e2e_max/1000:.2f}μs")
+                print(f"  注入耗时: p50={inj_p50/1000:.2f}μs max={inj_max/1000:.2f}μs")
 
                 # 步进追踪表输出
-                if local_test_trace and step_rows:
+                if step_rows:
                     if trace_mode == "realtime":
                         pass  # standby 是 native 执行, 无法实时输出, 统一在 final 输出
-                    print("\n          步数 |     指令     |  目标时刻(ms) | 到达抖动(ns) | 端到端抖动(ns) | 注入耗时(ns) | 状态")
+                    print("\n          步数 |     指令     |  目标时刻(ms) | 到达抖动(μs) | 端到端抖动(μs) | 注入耗时(μs) | 状态")
                     for row in step_rows:
                         st_text = "OK" if row["status"] == 0 else f"FAIL({row['status']})"
                         print(f"[动作表] {row['step']:>5} | {row['desc']:<12} | "
-                              f"{row['target_ms']:>13.3f} | {row['arrival_jitter_ns']:>13} | "
-                              f"{row['e2e_jitter_ns']:>14} | {row['inject_cost_ns']:>12} | {st_text}")
+                              f"{row['target_ms']:>13.3f} | {row['arrival_jitter_us']:>13.2f} | "
+                              f"{row['e2e_jitter_us']:>14.2f} | {row['inject_cost_us']:>12.2f} | {st_text}")
                     print(f"[测试] standby 模式: {len(step_rows)}步, "
-                          f"到达p99={arr_p99}ns, 端到端p99={e2e_p99}ns, "
-                          f"注入p50={inj_p50}ns")
+                          f"到达p99={arr_p99/1000:.2f}μs, 端到端p99={e2e_p99/1000:.2f}μs, "
+                          f"注入p50={inj_p50/1000:.2f}μs")
 
         return True
 
@@ -2196,7 +2262,184 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
 
 
 def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, options=None):
-    """帧延迟分段 standby 执行：按帧边界把宏切为若干段，段内走 native standby，段间 RTSS 等帧。"""
+    """帧延迟分段 standby 执行 (B 方案完全下沉路径)。
+
+    将含帧延迟的宏整体编译成扁平时间线 (含 ACT_RTSS_WAIT_FRAMES 标记),
+    一次 submit_segmented_timeline + start 跑完整宏。段间 RTSS 帧等待在 C 层
+    自旋完成, 消除每段重建 native 线程的 100~500μs 盲区。
+
+    C 扩展不支持新接口时自动回退到 _execute_via_standby_segmented_legacy。"""
+    import statistics as _stats
+
+    se = _standby_engine_module
+    if se is None or se is False:
+        return False
+
+    # C 扩展不支持 B 方案新接口 → 回退旧路径
+    if not (hasattr(se, "submit_segmented_timeline") and hasattr(se, "set_rtss_config")
+            and hasattr(se, "ACT_RTSS_WAIT_FRAMES")):
+        return _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name, options)
+
+    # 不含帧延迟 → 走单段路径
+    if not any(item[1] < -0.5 for item in compiled_macro):
+        return _execute_via_standby(compiled_macro, stop_event, macro_name, options)
+
+    rtss = _get_rtss()
+    rtss.reset()
+
+    _opt = options if options else {}
+    local_test_trace = _opt.get("test_trace", ENABLE_TEST_TRACE)
+    trace_mode = str(_opt.get("test_trace_mode", TEST_TRACE_OUTPUT_MODE)).lower()
+    if trace_mode not in ("realtime", "final"):
+        trace_mode = "final"
+
+    ST_SEGMENT_START = getattr(se, "ST_SEGMENT_START", 0x80000000)
+    ACT_RTSS_WAIT = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
+    ST_STATUS_MASK = 0x7FFFFFFF   # 掩掉段起点高位, 取低 31 位 status
+
+    try:
+        # 1. 侦测 RTSS entry offset, 配置 C 层 (返回 entry base, C 层自读 t1/fr/ft)
+        entry_offset = rtss.detect_entry_offset()
+        se.set_rtss_config(entry_offset, RTSS_FALLBACK_MS_PER_FRAME)
+        if entry_offset == 0:
+            print(f"[standby+RTSS] {macro_name}: 未检测到 RTSS 目标 entry, C 层走 fallback {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
+        # 1b. 按 ENABLE_TEST_TRACE 同步开关 C 层统计: 关闭时跳过两次 qpc_now(), 榨干 ~10ns 精度
+        if hasattr(se, "set_stats_enabled"):
+            se.set_stats_enabled(1 if local_test_trace else 0)
+
+        # 2. 编译分段时间线 (含 ACT_RTSS_WAIT_FRAMES)
+        events, events_meta = compile_to_timeline(compiled_macro, mode="segmented")
+        if not events:
+            print(f"[standby+RTSS] {macro_name}: 无可执行事件, 跳过")
+            return True
+        if len(events) > STANDBY_MAX_EVENTS:
+            raise ValueError(f"时间线事件数 {len(events)} 超过上限 {STANDBY_MAX_EVENTS}")
+
+        n_barriers = sum(1 for e in events if e[1] == ACT_RTSS_WAIT)
+        n_segs = n_barriers + 1
+        print(f"[standby+RTSS] {macro_name}: {n_segs}段, 帧边界{n_barriers}处 (B方案下沉)")
+
+        # 3. 选核
+        if STANDBY_FIXED_CORE >= 0:
+            core = STANDBY_FIXED_CORE
+        elif STANDBY_AUTO_PICK_CORE:
+            core = se.auto_pick_core()
+            if core is None:
+                raise RuntimeError("无法检测可用 P-core")
+        else:
+            core = 1
+
+        # 4. 提交分段时间线 (不 track_reset, 保留跨段按键状态)
+        n = se.submit_segmented_timeline(events, 0)
+        if n < 0:
+            raise RuntimeError("submit_segmented_timeline 失败")
+
+        # 5. 启动 standby 线程 (keep_pressed=0: 整体跑完由 C 层 release_all_pressed)
+        use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
+        se.start(core, use_ic, 0)
+        print(f"[standby+RTSS] 启动: CPU{core}, events={len(events)}, interception={use_ic}, macro={macro_name}")
+
+        # 6. 等待完成或停止
+        while not stop_event.is_set():
+            if se.wait_completion(2):
+                break
+        else:
+            se.stop()
+            print(f"[standby+RTSS] 用户终止: {macro_name}")
+            return True
+
+        # 7. 读取结果, 计算抖动 (μs)
+        results = se.get_results()
+        qpc_freq = se.get_qpc_frequency()
+        if results and qpc_freq > 0:
+            arrival_jitters_ns = []
+            e2e_jitters_ns = []
+            inject_costs_ns = []
+            seg_start_jitters_ns = []   # 段起点偏移 (B 方案核心验证指标)
+            step_rows = []
+
+            for i, r in enumerate(results):
+                target_qpc, actual_qpc, inj_done_qpc, action_type, status = r
+                low_status = status & ST_STATUS_MASK
+                if low_status == 3:   # ST_SKIPPED
+                    continue
+                arrival_jitter_ns = (actual_qpc - target_qpc) * 1_000_000_000 // qpc_freq
+                e2e_jitter_ns = (inj_done_qpc - target_qpc) * 1_000_000_000 // qpc_freq
+                inject_cost_ns = (inj_done_qpc - actual_qpc) * 1_000_000_000 // qpc_freq
+                arrival_jitters_ns.append(arrival_jitter_ns)
+                e2e_jitters_ns.append(e2e_jitter_ns)
+                inject_costs_ns.append(inject_cost_ns)
+
+                # 段起点事件 (ACT_RTSS_WAIT 后的首个事件) 单独统计
+                is_seg_start = (status & ST_SEGMENT_START) != 0 and action_type != ACT_RTSS_WAIT
+                if is_seg_start:
+                    seg_start_jitters_ns.append(arrival_jitter_ns)
+
+                if local_test_trace and i < len(events_meta):
+                    desc, off_ns, atype = events_meta[i]
+                    step_rows.append({
+                        "step": i + 1,
+                        "desc": desc,
+                        "target_ms": off_ns / 1_000_000,
+                        "arrival_jitter_us": arrival_jitter_ns / 1000.0,
+                        "e2e_jitter_us": e2e_jitter_ns / 1000.0,
+                        "inject_cost_us": inject_cost_ns / 1000.0,
+                        "status": low_status,
+                        "seg_start": is_seg_start,
+                    })
+
+            failed = sum(1 for r in results if (r[4] & ST_STATUS_MASK) != 0
+                         and (r[4] & ST_STATUS_MASK) != 3)   # 不计 SKIPPED
+            print(f"[standby+RTSS] 完成: {macro_name} | events={len(results)} failed={failed}")
+            # 统计汇总依赖 actual_qpc/injection_done_qpc; 关闭 test_trace 时 C 层跳过 qpc_now(),
+            # 这里同步跳过汇总输出 (开关由 ENABLE_TEST_TRACE 控制, 对应"未开放参数"中的测试追踪)
+            if local_test_trace and arrival_jitters_ns:
+                arr_p50 = _stats.median(arrival_jitters_ns)
+                arr_p99 = _standby_percentile(arrival_jitters_ns, 0.99)
+                arr_p999 = _standby_percentile(arrival_jitters_ns, 0.999)
+                arr_max = max(arrival_jitters_ns)
+                e2e_p50 = _stats.median(e2e_jitters_ns)
+                e2e_p99 = _standby_percentile(e2e_jitters_ns, 0.99)
+                e2e_p999 = _standby_percentile(e2e_jitters_ns, 0.999)
+                e2e_max = max(e2e_jitters_ns)
+                inj_p50 = _stats.median(inject_costs_ns)
+                inj_max = max(inject_costs_ns)
+
+                print(f"  到达抖动(注入前): p50={arr_p50/1000:.2f}μs p99={arr_p99/1000:.2f}μs p99.9={arr_p999/1000:.2f}μs max={arr_max/1000:.2f}μs")
+                print(f"  端到端抖动(注入后): p50={e2e_p50/1000:.2f}μs p99={e2e_p99/1000:.2f}μs p99.9={e2e_p999/1000:.2f}μs max={e2e_max/1000:.2f}μs")
+                print(f"  注入耗时: p50={inj_p50/1000:.2f}μs max={inj_max/1000:.2f}μs")
+
+                # 段起点偏移 (B 方案核心验证指标: 预期 ≤1μs)
+                if seg_start_jitters_ns:
+                    seg_vals_us = [v / 1000.0 for v in seg_start_jitters_ns]
+                    seg_str = " ".join(f"段{i+2}={v:.2f}μs" for i, v in enumerate(seg_vals_us))
+                    seg_max = max(seg_vals_us)
+                    print(f"  段起点偏移: {seg_str} | max={seg_max:.2f}μs")
+
+                # 步进追踪表 (μs 单位)
+                if step_rows:
+                    if trace_mode == "realtime":
+                        pass  # standby 是 native 执行, 无法实时输出
+                    print("\n          步数 |     指令     |  目标时刻(ms) | 到达抖动(μs) | 端到端抖动(μs) | 注入耗时(μs) | 状态")
+                    for row in step_rows:
+                        st_text = "OK" if row["status"] == 0 else f"FAIL({row['status']})"
+                        seg_mark = " [段起点]" if row["seg_start"] else ""
+                        print(f"[动作表] {row['step']:>5} | {row['desc']:<12} | "
+                              f"{row['target_ms']:>13.3f} | {row['arrival_jitter_us']:>13.2f} | "
+                              f"{row['e2e_jitter_us']:>14.2f} | {row['inject_cost_us']:>12.2f} | {st_text}{seg_mark}")
+
+        return True
+
+    except Exception as e:
+        print(f"[standby+RTSS] 执行失败: {e}")
+        return False
+    finally:
+        _standby_release_fallback()
+
+
+def _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name, options=None):
+    """旧路径: 段循环 + 每段重建 native 线程。C 扩展不支持 B 方案时回退。
+    每段 CreateThread 引入 100~500μs 盲区, 段2+ 第一个事件 target 基于线程启动瞬间。"""
     se = _standby_engine_module
     if se is None or se is False:
         return False
@@ -2221,13 +2464,11 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
         segments.append((list(current), 0))
 
     n_pts = sum(1 for _, f in segments if f > 0)
-    print(f"[standby+RTSS] {macro_name}: {len(segments)}段, 帧边界{n_pts}处")
+    print(f"[standby+RTSS-legacy] {macro_name}: {len(segments)}段, 帧边界{n_pts}处")
 
-    # 每段调用 _execute_via_standby，传入 _no_release_fallback=True 跳过段内兜底释放
-    # 中间段 _keep_pressed=True 保留按键状态延续; 最后一段 _keep_pressed=False 让 C 层补发抬起
     seg_options = dict(options) if options else {}
     seg_options["_no_release_fallback"] = True
-    seg_options["_keep_pressed"] = True   # 默认中间段保留按键
+    seg_options["_keep_pressed"] = True
 
     n_segs = len(segments)
 
@@ -2238,8 +2479,6 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
 
             if seg_items:
                 seg_name = f"{macro_name}[段{seg_idx + 1}/{n_segs}]"
-                # 最后一段不 keep_pressed, 让 C 层 release_all_pressed 统一补发抬起
-                # 覆盖: 宏以 kd 结尾 / 段内 ESC 中断 / 异常 退出场景
                 seg_options["_keep_pressed"] = (seg_idx < n_segs - 1)
                 ok = _execute_via_standby(seg_items, stop_event, seg_name, seg_options)
                 if not ok:
@@ -2249,12 +2488,11 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
                 t0 = time.perf_counter()
                 rtss.wait_frames(frames_after, stop_event)
                 dt_ms = (time.perf_counter() - t0) * 1000.0
-                print(f"[standby+RTSS] 帧等待 {frames_after}帧 实耗 {dt_ms:.1f}ms")
+                print(f"[standby+RTSS-legacy] 帧等待 {frames_after}帧 实耗 {dt_ms:.1f}ms")
 
         return True
 
     finally:
-        # 整体执行结束后统一做一次兜底释放
         _standby_release_fallback()
 
 
