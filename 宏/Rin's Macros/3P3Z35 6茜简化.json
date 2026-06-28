@@ -1,0 +1,71 @@
+[
+    // C
+    ["kd","e",40],
+    ["md","left",10],
+    ["ku","e",500],
+    ["mu","left",70],
+    // Qz
+    ["kd","q",50],
+    ["ku","q",1665],
+    ["md","left",340],
+    ["mu","left",105],
+    // sZ
+    // @action ["wait",40]
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",50],
+    // hzzP
+    ["md","left",243.2],
+    ["kd","shift",4],
+    ["ku","shift",1050],
+    ["mu","left",475],
+    // szP
+    ["wait",50],
+    ["md","left",210],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",1035],
+    // szP
+    ["wait",30],
+    ["md","left",210],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",1035],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    // hzzp
+    ["md","left",242],
+    ["kd","shift",4],
+    ["ku","shift",1045],
+    ["mu","left",485],
+    ["wait",30],
+    // sz
+    // @action ["wait",20]
+    // @action ["md","left",220]
+    // @action ["kd","shift",40]
+    // @action ["ku","shift",40]
+    // @action ["mu","left",25]
+    // hzzp
+    // @action ["md","left",242]
+    // @action ["kd","shift",4]
+    // @action ["ku","shift",1035]
+    // @action ["mu","left",455]
+    // @action ["wait",19]
+    // hcF
+    // @action ["md","left",242]
+    // @action ["kd","shift",4]
+    // @action ["ku","shift",95]
+    // @action ["mu","left",1000]
+    // scF
+    ["wait",30],
+    ["md","left",226],
+    ["kd","shift",50],
+    ["ku","shift",847],
+    ["mu","left",357],
+    ["import","宏/火，组件/火-(z)ez.json"],
+    // @action ["import","宏/火，组件/火-szz.json"]
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["wait",170]
+]

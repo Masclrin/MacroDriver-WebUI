@@ -1,0 +1,47 @@
+[
+    // QZ
+    ["kd","q",50],
+    ["ku","q",1675],
+    // 若q连段作为开头则为1675.
+    ["md","left",340],
+    ["mu","left",50],
+    // qzp连段时这项改成1100
+    // szZ
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",100],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",510],
+    // szzp
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",1050],
+    ["mu","left",540],
+    // （p）szZ
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",100],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",510],
+    // szzp
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",1050],
+    ["mu","left",540],
+    // sz
+    // @action ["md","left",200]
+    // @action ["kd","shift",50]
+    // @action ["ku","shift",50]
+    // @action ["mu","left",80]
+    // szzP
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",1050],
+    ["mu","left",540]
+]

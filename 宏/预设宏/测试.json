@@ -1,0 +1,21 @@
+[
+   ["kd","1",78.346],
+    ["ku","1",90],
+    ["import","宏/火，组件/火-QZ.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-(z)ez.json"],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    // @action ["import","宏/火，组件/火-sz.json"]
+    // @action ["import","宏/火，组件/火-szz.json"]
+    ["wait",500],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-sz.json"]
+]

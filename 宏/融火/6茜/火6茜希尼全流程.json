@@ -1,0 +1,51 @@
+[
+    ["kd","w",10],
+    ["md","right",140],
+    ["mu","right",50],
+    ["kd","e",0],
+    ["ku","e",400],
+    ["loop",10,[
+        ["kd","4",5],
+        ["ku","4",5]
+    ]],
+    ["wait",320],
+    ["ku","w",0],
+    ["kd","e",50],
+    ["ku","e",670],
+    ["kd","2",50],
+    // @action ["ku","2",170]
+    ["ku","2",280],
+    // @action ["md","left",20]
+    // @action ["mu","left",210]
+    ["kd","e",50],
+    ["ku","e",720],
+    // @action ["ku","e",810]
+    ["kd","3",50],
+    ["ku","3",122],
+    ["kd","e",50],
+    ["kd","e",50],
+    ["ku","e",50],
+    ["ku","e",100],
+    ["loop",40,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    // @action ["wait",50]
+    ["kd","1",50],
+    // @action ["ku","1",120]
+    ["ku","1",200],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    // @action ["wait",10]
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜简化.json"],
+    ["import","宏/融火/6茜/火6茜希尼373.json"],
+    ["import","宏/Rin's Macros/3P3Z35 6茜 末轮.json"]
+]

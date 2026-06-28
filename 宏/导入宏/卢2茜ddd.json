@@ -1,0 +1,34 @@
+[
+    ["kd","q",50],
+    ["ku","q",1630],
+    ["loop",10,[
+        ["kd","1",5],
+        ["ku","1",5]
+    ]],
+    ["loop",8,[
+        ["kd","space",5],
+        ["ku","space",5]
+    ]],
+    ["md","left",50],
+    ["mu","left",540],
+    ["kd","shift",8],
+    ["ku","shift",10],
+    ["kd","space",50],
+    ["ku","space",60],
+    ["md","left",50],
+    ["mu","left",590],
+    ["kd","shift",8],
+    ["ku","shift",10],
+    ["kd","space",55],
+    ["ku","space",75],
+    ["md","left",10],
+    ["mu","left",500],
+    ["loop",20,[
+        ["md","left",4],
+        ["kd","space",5],
+        ["mu","left",4],
+        ["ku","space",5]
+    ]],
+    ["md","left",50],
+    ["mu","left",770]
+]

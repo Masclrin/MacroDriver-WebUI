@@ -1,0 +1,66 @@
+[
+    ["kd","q",50],
+    ["ku","q",1630],
+    ["loop",10,[
+        ["kd","1",5],
+        ["ku","1",5]
+    ]],
+    ["loop",8,[
+        ["kd","space",5],
+        ["ku","space",5]
+    ]],
+    ["md","left",50],
+    ["mu","left",540],
+    ["kd","shift",8],
+    ["ku","shift",10],
+    ["kd","space",50],
+    ["ku","space",60],
+    ["md","left",50],
+    ["mu","left",600],
+    ["kd","shift",8],
+    ["ku","shift",10],
+    ["kd","space",55],
+    ["ku","space",120],
+    ["md","left",50],
+    ["mu","left",1070],
+    // 4
+    ["md","left",10],
+    ["mu","left",15],
+    ["kd","space",55],
+    ["ku","space",120],
+    ["md","left",50],
+    ["mu","left",1070],
+    // 5
+    ["md","left",10],
+    ["mu","left",15],
+    ["kd","space",55],
+    ["ku","space",120],
+    ["md","left",50],
+    ["mu","left",1120],
+    // 6
+    ["md","left",10],
+    ["mu","left",15],
+    ["kd","space",55],
+    ["ku","space",120],
+    ["md","left",50],
+    ["mu","left",1200],
+    // 78
+    ["md","left",10],
+    ["mu","left",15],
+    ["kd","space",55],
+    ["ku","space",110],
+    ["md","left",50],
+    ["mu","left",550],
+    ["loop",3,[
+        ["mu","right",5],
+        ["md","right",4]
+    ]],
+    ["loop",8,[
+        ["kd","space",5],
+        ["ku","space",5]
+    ]],
+    ["loop",22,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]]
+]

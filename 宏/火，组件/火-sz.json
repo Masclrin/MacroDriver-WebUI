@@ -1,0 +1,9 @@
+[
+    // @action ["wait",40]
+    ["wait",30],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",40]
+    // @action ["mu","left",25]
+]

@@ -1,0 +1,288 @@
+[
+    ["kd","2",50],
+    ["ku","2",120],
+    ["loop",15,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["loop",7,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["loop",78,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["kd","1",150],
+    ["ku","1",140],
+    ["kd","e",400],
+    ["ku","e",130],
+    ["md","left",350],
+    ["mu","left",50],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["wait",200],
+    ["loop",5,[
+        ["kd","2",10],
+        ["ku","2",10]
+    ]],
+    ["loop",10,[
+        ["wait",20]
+    ]],
+    ["wait",800],
+    ["loop",5,[
+        ["kd","3",10],
+        ["ku","3",10]
+    ]],
+    ["wait",350],
+    ["loop",15,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["loop",20,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["loop",150,[
+        ["kd","q",5],
+        ["ku","q",5]
+    ]],
+    ["kd","alt",10],
+    ["kd","2",10],
+    ["ku","2",10],
+    ["ku","alt",1850],
+    ["loop",36,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["loop",5,[
+        ["kd","4",10],
+        ["ku","4",10]
+    ]],
+    ["loop",11,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["kd","s",10],
+    ["loop",14,[
+        ["md","right",10],
+        ["mu","right",10]
+    ]],
+    ["ku","s",10],
+    ["loop",5,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["loop",18,[
+        ["md","right",10],
+        ["mu","right",10]
+    ]],
+    ["wait",150],
+    ["md","left",50],
+    ["mu","left",300],
+    // 2
+    ["loop",5,[
+        ["kd","2",10],
+        ["ku","2",10]
+    ]],
+    ["loop",15,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["loop",20,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["loop",26,[
+        ["md","left",10],
+        ["mu","left",10]
+    ]],
+    ["kd","alt",30],
+    ["kd","1",10],
+    ["ku","1",30],
+    ["ku","alt",1785],
+    ["md","left",340],
+    ["mu","left",70],
+    ["md","left",203.133],
+    ["md","right",91.227],
+    ["mu","left",10],
+    ["mu","right",120],
+    ["md","left",60.233],
+    ["mu","left",60],
+    ["md","left",62.154],
+    ["mu","left",52.224],
+    ["md","left",85],
+    ["mu","left",330.186],
+    ["md","left",200.169],
+    ["md","right",50],
+    ["mu","right",50],
+    ["mu","left",50],
+    ["md","left",180],
+    ["md","right",105],
+    ["mu","right",1000],
+    ["mu","left",600],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    // @action ["import","宏/火，组件/火-szp.json"]
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-(z)ez.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["wait",220],
+    // 2轮
+    // @action ["import","宏/预设宏/魔导火-大轮 空格.json"]
+    ["loop",5,[
+        ["kd","3",10],
+        ["ku","3",10]
+    ]],
+    ["wait",300],
+    ["loop",31,[
+        ["kd","e",10],
+        ["ku","e",10]
+    ]],
+    ["loop",7,[
+        ["md","right",10],
+        ["mu","right",10]
+    ]],
+    // @action ["wait",300]
+    ["loop",30,[
+        ["kd","q",10],
+        ["ku","q",10]
+    ]],
+    ["kd","alt",10],
+    ["kd","2",10],
+    ["ku","2",10],
+    ["ku","alt",2180],
+    ["md","left",70],
+    ["mu","left",155],
+    ["kd","e",81.544],
+    ["ku","e",430],
+    ["kd","space",50],
+    ["ku","space",595],
+    ["md","left",47.29],
+    ["mu","left",390],
+    ["md","left",10],
+    ["mu","left",10],
+    ["md","left",67.2],
+    ["mu","left",125],
+    ["kd","4",65.084],
+    ["kd","s",0],
+    ["ku","4",142.188],
+    ["kd","e",41.183],
+    ["ku","e",112.503],
+    // @action ["kd","shift",13]
+    ["kd","space",89.321],
+    // @action ["ku","shift",10]
+    ["ku","space",470],
+    ["loop",83,[
+        ["kd","q",5],
+        ["ku","q",5]
+    ]],
+    ["ku","s",0],
+    ["md","left",50],
+    ["mu","left",200],
+    ["kd","1",78.346],
+    ["ku","1",90],
+    ["import","宏/火，组件/火-QZ.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    // @action ["import","宏/火，组件/火-sz.json"]
+    ["import","宏/火，组件/火-szz.json"],
+    // @action ["import","宏/火，组件/火-sz.json"]
+    ["import","宏/火，组件/火-(z)ez.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",300],
+    ["mu","left",0],
+    // @action ["import","宏/预设宏/魔导火-2轮t破影.json"]
+    ["import","宏/预设宏/魔导火-2轮 aesz.json"],
+    // @action ["md","left",50]
+    // @action ["mu","left",50]
+    // @action ["md","left",50]
+    // @action ["mu","left",50]
+    // @action ["wait",450]
+    ["import","宏/预设宏/魔导火-大轮 空格.json"],
+    // @action ["import","宏/预设宏/魔导火-大轮 st.json"]
+    // @action ["import","宏/预设宏/魔导火-2轮t破影.json"]
+    ["import","宏/预设宏/魔导火-2轮 aesz.json"],
+    // @action ["md","left",50]
+    // @action ["mu","left",50]
+    // @action ["md","left",50]
+    // @action ["mu","left",50]
+    // @action ["wait",450]
+    // @action ["wait",230]
+    // 尾
+    ["kd","3",100],
+    ["ku","3",100],
+    ["kd","e",86.395],
+    ["ku","e",118.107],
+    ["md","left",50],
+    ["mu","left",470],
+    ["kd","q",69.251],
+    ["ku","q",49.378],
+    ["kd","q",138.958],
+    ["ku","q",436.251],
+    ["kd","2",97.257],
+    ["kd","q",18.125],
+    ["ku","2",66.141],
+    ["ku","q",48.245],
+    ["kd","q",73.172],
+    ["ku","q",55.195],
+    ["kd","q",160.236],
+    ["ku","q",1717.654],
+    ["md","left",66.316],
+    ["mu","left",154.699],
+    ["kd","e",81.544],
+    ["ku","e",430],
+    ["kd","space",50],
+    ["ku","space",595],
+    ["md","left",47.29],
+    ["mu","left",390],
+    ["md","left",10],
+    ["mu","left",10],
+    ["md","left",67.2],
+    ["mu","left",125],
+    ["kd","4",65.084],
+    ["kd","s",0],
+    ["ku","4",142.188],
+    ["kd","e",41.183],
+    ["ku","e",112.503],
+    // @action ["kd","shift",13]
+    ["kd","space",89.321],
+    // @action ["ku","shift",10]
+    ["ku","space",470],
+    ["loop",83,[
+        ["kd","q",5],
+        ["ku","q",5]
+    ]],
+    ["ku","s",0],
+    ["md","left",50],
+    ["mu","left",200],
+    ["kd","1",78.346],
+    ["ku","1",90],
+    ["import","宏/火，组件/火-QZ.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szzp.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-(z)ez.json"],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    // @action ["import","宏/火，组件/火-sz.json"]
+    // @action ["import","宏/火，组件/火-szz.json"]
+    ["wait",500]
+    // @action ["import","宏/火，组件/火-sz.json"]
+    // @action ["import","宏/火，组件/火-szz.json"]
+    // @action ["import","宏/火，组件/火-sz.json"]
+]

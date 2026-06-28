@@ -1,0 +1,59 @@
+[
+    // 展开自: 宏/火，组件/火-ez.json
+    // @action ["kd","e",40]
+    ["md","left",320],
+    // @action ["ku","e",310]
+    ["mu","left",20],
+    ["md","left",235],
+    ["md","right",5],
+    ["mu","right",10],
+    ["loop",20,[
+        ["md","right",5],
+        ["mu","right",5]
+    ]],
+    // 组件结尾
+    ["loop",10,[
+        ["kd","q",5],
+        ["ku","q",5]
+    ]],
+    // 展开自: 宏/火，组件/火-QZ.json
+    ["kd","q",250],
+    ["mu","left",4],
+    ["ku","q",1365],
+    ["md","left",305],
+    ["mu","left",10],
+    // @action ["import","宏/火，组件/火-szz.json"]
+    ["import","宏/火，组件/h/hzz.json"],
+    // @action ["md","left",20]
+    // @action ["mu","left",20]
+    // @action ["md","left",20]
+    // @action ["mu","left",428]
+    // 组件结尾
+    // @action ["import","宏/火，组件/火-sz.json"]
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    ["import","宏/火，组件/火-szz.json"],
+    // @action ["import","宏/火，组件/火-szz.json"]
+    // @action ["import","宏/火，组件/火-szz.json"]
+    // @action ["import","宏/火，组件/火-szz.json"]
+    // 展开自: 宏/火，组件/火-sz.json
+    // @action ["wait",40]
+    // @action ["mu","left",25]
+    // 组件结尾
+    ["wait",15],
+    ["md","left",225],
+    ["kd","shift",4],
+    ["ku","shift",145],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",1135],
+    ["wait",15],
+    ["md","left",220],
+    ["kd","shift",40],
+    ["ku","shift",30],
+    ["mu","left",35],
+    // 组件结尾
+    ["import","宏/火，组件/火-sz.json"]
+]

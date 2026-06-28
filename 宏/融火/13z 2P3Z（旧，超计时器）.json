@@ -1,0 +1,29 @@
+[
+    ["import","宏/融火/伊夏前戏277热.json"],
+    ["kd","e",40],
+    ["md","left",10],
+    ["ku","e",500],
+    ["mu","left",80],
+    ["import","宏/火，组件/火-QZ.json"],
+    ["wait",20],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/h/hzzp.json"],
+    ["import","宏/火，组件/h/hz.json"],
+    ["import","宏/火，组件/h/hzzp.json"],
+    ["wait",50],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/h/hzzp.json"],
+    ["wait",20],
+    ["import","宏/火，组件/h/hzzp.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-(z)ez.json"],
+    ["import","宏/火，组件/火-sz.json"],
+    ["import","宏/火，组件/火-szz.json"]
+    // @action ["import","宏/火，组件/h/hz.json"]
+    // @action ["import","宏/火，组件/h/hzp.json"]
+    // @action ["wait",150]
+    // @action ["import","宏/火，组件/火-ez.json"]
+    // @action ["wait",50]
+    // @action ["import","宏/火，组件/火-sz.json"]
+    // @action ["import","宏/火，组件/火-sz.json"]
+]

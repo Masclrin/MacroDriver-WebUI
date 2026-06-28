@@ -1,0 +1,126 @@
+[   
+    //e
+    ["kd", "e", 10],
+    ["ku", "e", 310],
+    //2az
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 55],
+    ["md", "left", 375],
+    ["mu", "left", 512],
+
+    // === 2as (1) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 2as (2) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 5as (3) ===
+    ["md", "left", 10],
+    ["mu", "left", 135],
+    ["md", "left", 10],
+    ["mu", "left", 335],
+    ["md", "left", 10],
+    ["mu", "left", 555],
+    ["md", "left", 10],
+    ["mu", "left", 575],
+    ["md", "left", 10],
+    ["mu", "left", 475],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 2azs (4) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 55],
+    ["md", "left", 375],
+    ["mu", "left", 70],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 3aw (5) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 285],
+    ["md", "left", 10],
+    ["mu", "left", 810],
+    ["kd", "w", 10],  //w
+    ["ku", "w", 30],
+
+    // === 2as (6) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 2as (7) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 3aw (8) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 285],
+    ["md", "left", 10],
+    ["mu", "left", 810],
+    ["kd", "w", 10],  //w
+    ["ku", "w", 30],
+
+    // === 2as (9) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 2azs (10) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 55],
+    ["md", "left", 375],
+    ["mu", "left", 70],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 5as (11) ===
+    ["md", "left", 10],
+    ["mu", "left", 135],
+    ["md", "left", 10],
+    ["mu", "left", 335],
+    ["md", "left", 10],
+    ["mu", "left", 555],
+    ["md", "left", 10],
+    ["mu", "left", 575],
+    ["md", "left", 10],
+    ["mu", "left", 475],
+    ["md", "right", 10],
+    ["mu", "right", 173],
+
+    // === 2a (12) ===
+    ["md", "left", 10],
+    ["mu", "left", 130],
+    ["md", "left", 10],
+    ["mu", "left", 215]
+]

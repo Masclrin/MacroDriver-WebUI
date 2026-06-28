@@ -1,0 +1,87 @@
+[
+    ["import","宏/融火/伊夏前戏277热.json"],
+    ["kd","e",40],
+    ["md","left",10],
+    ["ku","e",500],
+    ["mu","left",50],
+    // QZ
+    ["kd","q",50],
+    ["ku","q",1660],
+    ["md","left",340],
+    ["mu","left",10],
+    ["wait",20],
+    // sz
+    ["wait",40],
+    ["md","left",220],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",40],
+    // hzzp
+    ["md","left",242],
+    ["kd","shift",50],
+    ["ku","shift",980],
+    ["mu","left",485],
+    // hz
+    ["md","left",242],
+    ["kd","shift",40],
+    ["ku","shift",40],
+    ["mu","left",40],
+    // hzzp
+    ["md","left",242],
+    ["kd","shift",50],
+    ["ku","shift",1000],
+    ["mu","left",485],
+    ["wait",60],
+    // sz
+    ["wait",60],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",40],
+    // hzzp
+    ["md","left",242],
+    ["kd","shift",50],
+    ["ku","shift",990],
+    ["mu","left",485],
+    ["wait",40],
+    // hzzp
+    ["md","left",242],
+    ["kd","shift",50],
+    ["ku","shift",1000],
+    ["mu","left",500],
+    // sz
+    ["wait",40],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",40],
+    // (z)ez
+    ["wait",140],
+    ["md","left",200],
+    ["kd","e",420],
+    ["ku","e",60],
+    ["mu","left",80],
+    // sz
+    ["wait",40],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",50],
+    ["mu","left",40],
+    // szz
+    ["wait",40],
+    ["md","left",200],
+    ["kd","shift",50],
+    ["ku","shift",100],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",50],
+    ["md","left",50],
+    ["mu","left",475]
+    // @action ["import","宏/火，组件/h/hz.json"]
+    // @action ["import","宏/火，组件/h/hzp.json"]
+    // @action ["wait",150]
+    // @action ["import","宏/火，组件/火-ez.json"]
+    // @action ["wait",50]
+    // @action ["import","宏/火，组件/火-sz.json"]
+    // @action ["import","宏/火，组件/火-sz.json"]
+]

@@ -1,0 +1,137 @@
+[
+    ["kd", "1", 51],
+    ["ku", "1", 50],
+    ["kd", "1", 51],
+    ["ku", "1", 50],
+    ["kd", "1", 61],
+    ["ku", "1", 60],
+    //QZ
+    ["kd", "q", 50],
+    ["ku", "q", 1635],//若q连段作为开头则为1675.
+    ["md", "left", 340],
+    ["mu", "left", 50],//qzp连段时这项改成1100
+    
+    //szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //szZP
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 1050],
+    ["mu", "left", 540],
+
+    //(P)szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //sZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 50],
+    ["mu", "left", 80],
+
+    //szwP
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 760],
+    ["mu", "left", 612],
+
+    //szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //szZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 100],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 50],
+    ["md", "left", 50],
+    ["mu", "left", 510],
+
+    //sZ
+    ["md", "left", 200],
+    ["kd", "shift", 50],
+    ["ku", "shift", 50],
+    ["mu", "left", 80],
+
+    //e
+    ["kd", "e", 50],
+    ["ku", "e", 50]
+    
+    // //szP
+    // ["md", "left", 200],
+    // ["kd", "shift", 50],
+    // ["ku", "shift", 50],
+    // ["mu", "left", 1100],
+
+    // //sz P
+    // ["md", "left", 200],
+    // ["kd", "shift", 50],
+    // ["ku", "shift", 50],
+    // ["mu", "left", 1100]
+
+
+    // //sZz
+    // ["md", "left", 200],
+    // ["kd", "shift", 50],
+    // ["ku", "shift", 100],
+    // ["mu", "left", 50],
+    // ["md", "left", 50],
+    // ["mu", "left", 50],
+    // ["md", "left", 50],
+    // ["mu", "left", 510],
+
+    // //sZZ
+    // ["md", "left", 200],
+    // ["kd", "shift", 50],
+    // ["ku", "shift", 100],
+    // ["mu", "left", 50],
+    // ["md", "left", 50],
+    // ["mu", "left", 50],
+    // ["md", "left", 50],
+    // ["mu", "left", 510],
+
+
+
+]
