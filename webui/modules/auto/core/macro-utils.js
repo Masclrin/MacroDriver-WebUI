@@ -38,7 +38,7 @@
                 case 'kd': case 'ku': case 'md': case 'mu':
                     return [type, arg1 || 'left', this.parseNumber(arg2, 0)];
                 case 'wait':
-                    return ['wait', this.parseNumber(arg1, 100)];
+                    return ['wait', this.parseDelay ? this.parseDelay(arg1, 100) : this.parseNumber(arg1, 100)];
                 case 'view':
                     return ['view', [this.parseNumber(arg1, 0), this.parseNumber(arg2, 0)], this.parseNumber(params.arg3, 0)];
                 case 'move_to':

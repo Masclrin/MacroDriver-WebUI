@@ -27,7 +27,7 @@ export function getInlineEditorValues(action) {
     };
   }
   if (cmd === 'wait') {
-    return { type: cmd, arg1: String(Math.max(0, parseNumber(action[1], 50))), arg2: '' };
+    return { type: cmd, arg1: String(parseDelay(action[1], 50)), arg2: '' };
   }
   if (cmd === 'loop') {
     return { type: cmd, arg1: String(Math.max(1, parseNumber(action[1], 1))), arg2: '' };

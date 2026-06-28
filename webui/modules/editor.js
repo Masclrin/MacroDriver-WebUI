@@ -298,8 +298,7 @@ function buildActionFromInputs(options = {}) {
   const arg2 = q('#actionArg2').value.trim();
 
   if (type === 'wait') {
-    const ms = Math.max(0, parseNumber(arg1 || '50', 50));
-    return ['wait', ms];
+    return ['wait', parseDelay(arg1 || '50', 50)];
   }
 
   if (type === 'view') {

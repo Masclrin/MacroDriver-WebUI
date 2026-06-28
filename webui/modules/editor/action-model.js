@@ -59,7 +59,7 @@ export function normalizeAction(action) {
   }
 
   if (cmd === 'wait') {
-    return ['wait', Math.max(0, parseNumber(action[1], 50))];
+    return ['wait', parseDelay(action[1], 50)];
   }
 
   if (cmd === 'import') {
@@ -87,7 +87,7 @@ export function formatActionLabel(action, expanded) {
   const cmd = String(action[0] ?? '').trim().toLowerCase();
 
   if (cmd === 'wait') {
-    return `wait ${parseNumber(action[1], 0)}ms`;
+    return `wait ${formatDelay(action[1])}`;
   }
   if (cmd === 'view') {
     const vec = Array.isArray(action[1]) ? action[1] : [0, 0];
