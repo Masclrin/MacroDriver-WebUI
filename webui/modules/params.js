@@ -235,8 +235,8 @@ async function saveGlobalParams() {
 
     if (text.startsWith('[') || text.startsWith('{')) {
       const parsed = JSON.parse(text);
-      if (type === 'json' && (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))) {
-        throw new Error('JSON 参数必须是对象');
+      if (type === 'json' && (typeof parsed !== 'object' || parsed === null)) {
+        throw new Error('JSON 参数必须是对象或数组');
       }
       if ((type === 'list' || type === 'set') && !Array.isArray(parsed)) {
         throw new Error('列表参数必须是 JSON 数组');
@@ -245,7 +245,7 @@ async function saveGlobalParams() {
     }
 
     if (type === 'json') {
-      throw new Error('JSON 参数请使用对象格式，如 {"key": "value"}');
+      throw new Error('JSON 参数请使用对象或数组格式，如 {"key": "value"} 或 ["a", "b"]');
     }
 
     return text.split(',').map((s) => s.trim()).filter(Boolean);
