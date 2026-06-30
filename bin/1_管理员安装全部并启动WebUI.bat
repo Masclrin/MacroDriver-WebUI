@@ -127,6 +127,27 @@ if not defined PYTHON_CMD (
     )
 )
 
+:: ---- 策略 B.5：扫描所有用户目录（管理员模式下 %LOCALAPPDATA% 会指向系统账户）----
+if not defined PYTHON_CMD (
+    echo [信息] 扫描所有用户目录中的 Python 安装...
+    for /d %%U in ("%SystemDrive%\Users\*") do (
+        for %%V in (Python314 Python313 Python312 Python311 Python310 Python39 Python38) do (
+            if not defined PYTHON_CMD (
+                if exist "%%U\AppData\Local\Programs\Python\%%V\python.exe" (
+                    for /f "delims=" %%W in ('"%%U\AppData\Local\Programs\Python\%%V\python.exe" --version 2^>^&1') do (
+                        set "VER_LINE=%%W"
+                    )
+                    echo !VER_LINE! | findstr /i "Python 3" >nul 2>&1
+                    if !errorlevel! equ 0 (
+                        set "PYTHON_CMD=%%U\AppData\Local\Programs\Python\%%V\python.exe"
+                        echo [检测到] !VER_LINE!  路径: !PYTHON_CMD!
+                    )
+                )
+            )
+        )
+    )
+)
+
 :: ---- 策略 C：通过 PowerShell 查询注册表 / AppX ----
 if not defined PYTHON_CMD (
     echo [信息] 常见路径未找到，尝试通过 PowerShell 查询系统信息...

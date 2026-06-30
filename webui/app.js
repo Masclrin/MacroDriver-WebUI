@@ -21,6 +21,7 @@ import {
 import { pollConsole, clearConsole, popoutConsole } from './modules/console.js';
 import { refreshSnapshot, refreshListenerButtonState } from './modules/dashboard.js';
 import { initExtraTab } from './modules/extra.js';
+import { initConverterTab } from './modules/converter.js';
 
 state.renderEditorMacroBrowser = renderEditorMacroBrowser;
 state.renderRecordMacroBrowser = renderRecordMacroBrowser;
@@ -70,6 +71,9 @@ async function switchTab(tabName) {
   }
   if (tabName === 'extra') {
     initExtraTab();
+  }
+  if (tabName === 'converter') {
+    initConverterTab();
   }
 }
 

@@ -22,6 +22,7 @@
         <button class="tab-btn active" data-tab="macro">宏执行绑定</button>
         <button class="tab-btn" data-tab="editor">宏编辑保存</button>
         <button class="tab-btn" data-tab="record">录制与化简</button>
+        <button class="tab-btn" data-tab="converter">宏格式转换</button>
         <button class="tab-btn" data-tab="params">全局参数</button>
         <button class="tab-btn" data-tab="console">全局控制台</button>
         <button class="tab-btn" data-tab="automation">自动化编辑器</button>
@@ -309,6 +310,121 @@
             </div>
             <ul id="actionList" class="list action-list"></ul>
           </div>
+        </div>
+      </section>
+
+      <section class="tab-page" data-tab-page="converter">
+        <div class="grid-2">
+
+          <!-- 左：输入 -->
+          <div class="card">
+            <div class="card-head">
+              <h2>输入宏文本</h2>
+              <button id="btnCvtDetect">检测格式</button>
+            </div>
+            <div class="field-row">
+              <label>源格式</label>
+              <select id="cvtSrcFmt">
+                <option value="auto">自动识别</option>
+                <option value="webui">WebUI JSON（ms）</option>
+                <option value="webui_frame">WebUI 帧数 Nf</option>
+                <option value="razer">Razer Synapse (XML)</option>
+                <option value="logitech">罗技 G HUB (Lua)</option>
+                <option value="ahk">AutoHotkey (AHK)</option>
+                <option value="xmouse">X-Mouse Button Control</option>
+                <option value="generic_json">通用录制 JSON</option>
+                <option value="cstruct">C 数组 (mouse/key)</option>
+              </select>
+            </div>
+            <p id="cvtDetectResult" class="hint"></p>
+            <textarea id="cvtInput" class="cvt-textarea" placeholder="粘贴任意格式的宏文本（Razer XML / AHK / 罗技 Lua / WebUI JSON / 通用 JSON / C 数组…）"></textarea>
+          </div>
+
+          <!-- 右：选项 + 输出 -->
+          <div class="card cvt-right">
+
+            <!-- A: 转为 WebUI 格式 -->
+            <details open class="cvt-section">
+              <summary>转为 WebUI JSON（可直接导入运行）</summary>
+              <div class="field-row double" style="margin-top:8px">
+                <div>
+                  <label>延迟格式</label>
+                  <select id="cvtToWebUIMode">
+                    <option value="webui">标准毫秒（ms）</option>
+                    <option value="webui_frame">帧数计时（Nf）</option>
+                  </select>
+                </div>
+                <div>
+                  <label>帧率 fps（Nf 时有效）</label>
+                  <input id="cvtToWebUIFps" type="number" min="1" max="1000" value="60" />
+                </div>
+              </div>
+              <button id="btnCvtToWebUI" class="primary">转为 WebUI JSON</button>
+            </details>
+
+            <!-- B: 转为外部格式 -->
+            <details class="cvt-section">
+              <summary>转为外部软件格式（Razer / AHK / 罗技 / X-Mouse）</summary>
+              <div class="field-row double" style="margin-top:8px">
+                <div>
+                  <label>目标格式</label>
+                  <select id="cvtDstFmt">
+                    <optgroup label="Razer Synapse">
+                      <option value="razer4">Razer Synapse 4（新版 XML）</option>
+                      <option value="razer3">Razer Synapse 3（旧版 XML）</option>
+                    </optgroup>
+                    <optgroup label="罗技 Lua">
+                      <option value="logitech_ghub">罗技 G HUB（新版 Lua）</option>
+                      <option value="logitech_lgs">罗技 LGS 旧版 Lua</option>
+                    </optgroup>
+                    <optgroup label="AutoHotkey">
+                      <option value="ahk">AutoHotkey v1 (.ahk)</option>
+                      <option value="ahk_v2">AutoHotkey v2 (.ahk)</option>
+                    </optgroup>
+                    <optgroup label="X-Mouse Button Control">
+                      <option value="xmouse">X-Mouse 完整文件 (.xmbcs)</option>
+                      <option value="xmouse_dsl">X-Mouse DSL 字符串（仅按键序列）</option>
+                    </optgroup>
+                  </select>
+                </div>
+                <div>
+                  <label>Nf→ms 帧率</label>
+                  <input id="cvtDstFps" type="number" min="1" max="1000" value="60" />
+                </div>
+              </div>
+              <button id="btnCvtToExternal" class="primary">转为外部格式</button>
+            </details>
+
+            <!-- C: 帧率重采样 -->
+            <details class="cvt-section">
+              <summary>帧率重采样（Nf → 不同帧率 Nf）</summary>
+              <p class="hint" style="margin-top:6px">输入框需为帧数格式（Nf）的 WebUI JSON。将帧同步延迟精确换算至新帧率，不损失帧同步语义。</p>
+              <div class="field-row double">
+                <div>
+                  <label>源帧率 fps</label>
+                  <input id="cvtSrcFps" type="number" min="1" max="1000" value="60" />
+                </div>
+                <div>
+                  <label>目标帧率 fps</label>
+                  <input id="cvtDstFps2" type="number" min="1" max="1000" value="144" />
+                </div>
+              </div>
+              <button id="btnCvtReframe">执行帧率重采样</button>
+            </details>
+
+            <!-- 输出区 -->
+            <div class="card-head" style="margin-top:12px">
+              <h3 style="margin:0">转换结果</h3>
+              <div class="inline-actions">
+                <button id="btnCvtUseAsInput">结果→输入</button>
+                <button id="btnCvtCopy" class="primary">复制</button>
+                <button id="btnCvtDownload">下载</button>
+              </div>
+            </div>
+            <textarea id="cvtOutput" class="cvt-textarea" readonly placeholder="转换结果将显示在这里…"></textarea>
+            <pre id="cvtStatus" class="hint cvt-status"></pre>
+          </div>
+
         </div>
       </section>
 

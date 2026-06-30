@@ -50,6 +50,7 @@ from bridge.listener_api import ListenerApiMixin
 from bridge.macro_simplify_api import MacroSimplifyApiMixin
 from bridge.extra_api import ExtraApiMixin
 from bridge.editor_record_api import EditorRecordApiMixin
+from bridge.converter_api import ConverterApiMixin
 
 try:
     from bridge.automation_api import AutomationApiMixin
@@ -91,6 +92,7 @@ class MacroBridge(
     AutomationApiMixin,
     PluginApiMixin,
     EditorRecordApiMixin,
+    ConverterApiMixin,
 ):
     webview = webview
 

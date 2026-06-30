@@ -40,6 +40,7 @@
 - **延时补偿** - PI控制器 + 前馈算法补偿系统延迟
 - **插件系统** - 支持自定义插件扩展节点功能
 - **检测能力** - 图像匹配、颜色检测、OCR文字识别
+- **宏格式转换** - 支持 Razer/Logitech/AHK/XMouse 等格式互转，WebUI/通用JSON/C数组导入，帧延迟格式导出
 
 ---
 
@@ -110,10 +111,13 @@ macro-driver-webui/
 │   ├── modules/            # 模块化 JS
 │   │   ├── auto/           # 可视化编辑器核心
 │   │   ├── core/           # 公共工具
-│   │   └── editor/         # 编辑器 UI
+│   │   ├── editor/         # 编辑器 UI
+│   │   └── converter.js    # 宏格式转换器前端
 │   ├── index.html          # 主页面
 │   └── automation_editor.html  # 自动化编辑器
 ├── bridge/                 # 后端 API 桥接层（8个Mixin）
+│   └── converter_api.py    # 格式转换 API
+├── macro_converter.py      # 多格式宏转换器（导入/导出）
 ├── automation/             # 宏执行引擎
 │   ├── engine.py           # 执行上下文与调度
 │   ├── compiler.py         # 宏编译为执行图
@@ -146,6 +150,7 @@ macro-driver-webui/
 | **宏录制系统**   | `recorder/recorder_3d.py` | 3D 轨迹录制，支持按键+轨迹同步                      |
 | **WebUI 桥接**   | `bridge/*.py`             | 8 个 Mixin 提供参数/录制/宏管理/自动化 API          |
 | **插件系统**     | `core/plugin_manager.py`  | 插件扫描、加载、执行、事件推送                      |
+| **宏格式转换器** | `macro_converter.py`      | 多格式宏导入解析与导出，支持帧延迟转换              |
 
 ---
 
@@ -181,6 +186,7 @@ macro-driver-webui/
 - `bin/` - 批处理脚本与依赖列表
 - `docs/` - 文档
 - `宏执行框架3.2.py` - 旧格式宏执行引擎
+- `macro_converter.py` - 宏格式转换器
 
 **应排除：**
 - `存档内容/` - 开发存档，非运行必需
@@ -224,6 +230,15 @@ pyinstaller --onefile --windowed --name MacroDriver webui_app.py
 | `perf:`     | 性能优化  | `perf: 优化延时补偿算法`                |
 | `test:`     | 测试相关  | `test: 添加编译器单元测试`              |
 | `chore:`    | 构建/工具 | `chore: 更新 requirements.txt`          |
+
+---
+
+## 主要贡献者
+
+| 贡献者 | 角色 |
+| --- | --- |
+| [@Masclrin](https://github.com/Masclrin) | 项目创建者 & 核心开发者 |
+| [@moudai202](https://github.com/moudai202) | 核心贡献者 |
 
 ---
 

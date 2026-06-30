@@ -1324,3 +1324,65 @@ hr {
   outline: 2px solid var(--accent-strong, #00d4bc);
   outline-offset: 1px;
 }
+
+/* ── 宏格式转换页 ──────────────────────────────── */
+
+.cvt-textarea {
+  width: 100%;
+  min-height: 260px;
+  flex: 1;
+  resize: vertical;
+  font-family: "Consolas", "Cascadia Code", "Source Code Pro", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: rgba(10, 20, 30, 0.65);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.cvt-textarea:focus {
+  border-color: var(--accent);
+}
+
+.cvt-textarea[readonly] {
+  background: rgba(8, 16, 26, 0.55);
+  color: #b0d8f0;
+}
+
+.cvt-section {
+  margin-bottom: 2px;
+}
+
+.cvt-section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent-strong);
+  padding: 8px 0 4px;
+  list-style: none;
+  user-select: none;
+}
+
+.cvt-section > summary::before {
+  content: '▶ ';
+  font-size: 10px;
+}
+
+.cvt-section[open] > summary::before {
+  content: '▼ ';
+}
+
+.cvt-right {
+  display: flex;
+  flex-direction: column;
+}
+
+.cvt-status {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 4px;
+  min-height: 1.4em;
+}

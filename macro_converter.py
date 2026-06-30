@@ -100,6 +100,10 @@ XMBC_SPECIAL_KEYS: dict[str, str] = {
     "WHEELUP": "__scroll_up", "WHEELDOWN": "__scroll_down",
     "LBUTTON": "__mouse_left", "RBUTTON": "__mouse_right", "MBUTTON": "__mouse_middle",
     "LMB": "__mouse_left", "RMB": "__mouse_right", "MBB": "__mouse_middle",
+    "LMBD": "__mousedown_left", "LMBU": "__mouseup_left",
+    "RMBD": "__mousedown_right", "RMBU": "__mouseup_right",
+    "MMBD": "__mousedown_middle", "MMBU": "__mouseup_middle",
+    "MBBD": "__mousedown_middle", "MBBU": "__mouseup_middle",
     "NUMPAD0": "numpad_0", "NUMPAD1": "numpad_1", "NUMPAD2": "numpad_2",
     "NUMPAD3": "numpad_3", "NUMPAD4": "numpad_4", "NUMPAD5": "numpad_5",
     "NUMPAD6": "numpad_6", "NUMPAD7": "numpad_7", "NUMPAD8": "numpad_8",
@@ -111,6 +115,7 @@ EXT_FORMAT_MAP: dict[str, str] = {
     ".lua": "logitech",
     ".ahk": "ahk",
     ".xmbcs": "xmouse",
+    ".json": "auto_content",
     ".txt": "auto_content",
     "": "auto_content",
 }
@@ -179,6 +184,7 @@ _EXPORT_EXT_MAP: dict[str, str] = {
     "logitech": ".lua",
     "ahk": ".ahk",
     "xmouse": ".xmbcs",
+    "webui_frame": ".json",
 }
 
 
@@ -207,11 +213,148 @@ def detect_format_by_content(source: str) -> str | None:
         return "xmouse"
     if re.search(r"Button\d+SimKey", source, re.I):
         return "xmouse"
+    if re.search(r'\{(?:LMB|RMB|MBB|LBUTTON|RBUTTON|MBUTTON|WHEELUP|WHEELDOWN)\}', source, re.I) \
+            or re.search(r'\{WAITMS:\d+\}', source, re.I):
+        if not re.search(r"Send|Click|Sleep|function|OnEvent", source, re.I):
+            return "xmouse"
     if re.search(r"\{CTRL\}|\{SHIFT\}|\{ALT\}|\{ENTER\}", source, re.I):
         if not re.search(r"Send|Click|Sleep|function", source, re.I):
             return "xmouse"
 
+    if re.search(r'\{\s*"(?:mouse|key)"', stripped, re.I):
+        return "cstruct"
+
+    if stripped.startswith('['):
+        try:
+            _probe = json.loads(stripped[:4000])
+        except Exception:
+            _probe = None
+        if isinstance(_probe, list) and _probe:
+            if isinstance(_probe[0], list):
+                _first_cmd = str(_probe[0][0]).strip().lower() if _probe[0] else ""
+                if _first_cmd in ("kd", "ku", "md", "mu", "wait", "loop", "note"):
+                    return "webui"
+            if isinstance(_probe[0], dict):
+                if any(k in _probe[0] for k in ("type", "event", "key", "button", "action", "ms")):
+                    return "generic_json"
+
     return None
+
+
+def _parse_jsonc_str(text: str) -> Any:
+    """解析带 // 注释的 JSON 字符串。"""
+    stripped_lines: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith('//'):
+            continue
+        comment_idx = line.find('//')
+        if comment_idx >= 0:
+            in_str = False
+            for i, ch in enumerate(line[:comment_idx]):
+                if ch == '"' and (i == 0 or line[i - 1] != '\\'):
+                    in_str = not in_str
+            if not in_str:
+                line = line[:comment_idx]
+        stripped_lines.append(line)
+    return json.loads('\n'.join(stripped_lines))
+
+
+_GENERIC_KEY_MAP: dict[str, str] = {
+    "control": "ctrl", "ctrl": "ctrl", "lctrl": "ctrl_l", "rctrl": "ctrl_r",
+    "lcontrol": "ctrl_l", "rcontrol": "ctrl_r",
+    # keyboard-lib "right/left X" space-separated forms (macro_formats.py style)
+    "left ctrl": "ctrl_l", "leftctrl": "ctrl_l",
+    "left control": "ctrl_l", "leftcontrol": "ctrl_l",
+    "right ctrl": "ctrl_r", "rightctrl": "ctrl_r",
+    "right control": "ctrl_r", "rightcontrol": "ctrl_r",
+    "shift": "shift", "lshift": "shift_l", "rshift": "shift_r",
+    "left shift": "shift_l", "leftshift": "shift_l",
+    "right shift": "shift_r", "rightshift": "shift_r",
+    "alt": "alt", "lalt": "alt_l", "ralt": "alt_r", "menu": "alt",
+    "left alt": "alt_l", "leftalt": "alt_l",
+    "right alt": "alt_r", "rightalt": "alt_r",
+    "windows": "lwin", "win": "lwin", "lwin": "lwin", "rwin": "rwin",
+    "left windows": "lwin", "leftwindows": "lwin",
+    "left win": "lwin", "leftwin": "lwin",
+    "right windows": "rwin", "rightwindows": "rwin",
+    "right win": "rwin", "rightwin": "rwin",
+    "meta": "lwin", "super": "lwin", "cmd": "lwin",
+    "space": "space", "spacebar": "space", " ": "space",
+    "enter": "enter", "return": "enter", "numpadenter": "enter",
+    "escape": "esc", "esc": "esc",
+    "tab": "tab", "backspace": "backspace",
+    "delete": "delete", "del": "delete",
+    "insert": "insert", "ins": "insert",
+    "home": "home", "end": "end",
+    "capslock": "caps_lock", "caps lock": "caps_lock", "caps_lock": "caps_lock",
+    "pageup": "page_up", "page_up": "page_up", "pgup": "page_up",
+    "pagedown": "page_down", "page_down": "page_down", "pgdn": "page_down",
+    "scrolllock": "scroll_lock", "scroll_lock": "scroll_lock",
+    "numlock": "num_lock", "num_lock": "num_lock",
+    "arrowup": "up", "arrowdown": "down", "arrowleft": "left", "arrowright": "right",
+    "up": "up", "down": "down", "left": "left", "right": "right",
+    "printscreen": "print_screen", "prtsc": "print_screen", "print screen": "print_screen",
+}
+
+
+def _normalize_key_generic(name: str) -> str:
+    s = str(name).strip()
+    low = s.lower().replace("-", " ")
+    if low in _GENERIC_KEY_MAP:
+        return _GENERIC_KEY_MAP[low]
+    nospace = low.replace(" ", "")
+    if nospace in _GENERIC_KEY_MAP:
+        return _GENERIC_KEY_MAP[nospace]
+    if len(s) == 1:
+        return s.lower()
+    if re.fullmatch(r"f\d{1,2}", low):
+        n_val = int(low[1:])
+        if 1 <= n_val <= 24:
+            return low
+    if re.fullmatch(r"numpad\d", low):
+        return low
+    return low
+
+
+def _normalize_button_generic(b: Any) -> str:
+    s = str(b).strip().lower()
+    table = {
+        "0": "left", "left": "left", "l": "left", "lbutton": "left", "primary": "left",
+        "1": "middle", "middle": "middle", "m": "middle", "mbutton": "middle",
+        "2": "right", "right": "right", "r": "right", "rbutton": "right", "secondary": "right",
+    }
+    return table.get(s, "left")
+
+
+def _parse_web_key_code(code: str) -> str | None:
+    c = str(code)
+    if c.startswith("Key") and len(c) == 4:
+        return c[3].lower()
+    if c.startswith("Digit") and len(c) == 6:
+        return c[5]
+    if c.startswith("Numpad") and c[6:].isdigit():
+        return f"numpad{c[6:]}"
+    if c.startswith("Arrow"):
+        return c[5:].lower()
+    _tbl = {
+        "Space": "space", "Enter": "enter", "Escape": "esc", "Tab": "tab",
+        "Backspace": "backspace", "CapsLock": "caps_lock",
+        "ShiftLeft": "shift_l", "ShiftRight": "shift_r",
+        "ControlLeft": "ctrl_l", "ControlRight": "ctrl_r",
+        "AltLeft": "alt_l", "AltRight": "alt_r",
+        "Delete": "delete", "Insert": "insert", "Home": "home", "End": "end",
+        "PageUp": "page_up", "PageDown": "page_down",
+    }
+    return _tbl.get(c)
+
+
+def _is_up_event(ev: dict, etype: str) -> bool:
+    if etype.endswith("up") or "release" in etype:
+        return True
+    if ev.get("up") is True:
+        return True
+    return str(ev.get("state", "")).lower() in ("up", "released", "release")
 
 
 class BaseConverter(ABC):
@@ -1024,27 +1167,39 @@ class XmouseConverter(BaseConverter):
                 if inner.startswith("WAIT:"):
                     try:
                         wait_ms = int(inner[5:])
-                        self._add(["wait", wait_ms])
                     except ValueError:
-                        self._add(["wait", 10])
+                        wait_ms = 10
+                    if self.rows and self.rows[-1][0] in ("mu", "ku", "md") \
+                            and len(self.rows[-1]) >= 3 and self.rows[-1][2] == 0:
+                        self.rows[-1][2] = wait_ms
+                    else:
+                        self._add(["wait", wait_ms])
                     i += 1
                     continue
 
                 if inner.startswith("WAITMS:"):
                     try:
                         wait_ms = int(inner[7:])
-                        self._add(["wait", wait_ms])
                     except ValueError:
-                        self._add(["wait", 10])
+                        wait_ms = 10
+                    if self.rows and self.rows[-1][0] in ("mu", "ku", "md") \
+                            and len(self.rows[-1]) >= 3 and self.rows[-1][2] == 0:
+                        self.rows[-1][2] = wait_ms
+                    else:
+                        self._add(["wait", wait_ms])
                     i += 1
                     continue
 
                 if inner.startswith("DELAY="):
                     try:
                         delay_ms = int(inner[6:])
-                        self._add(["wait", delay_ms])
                     except ValueError:
-                        self._add(["wait", 10])
+                        delay_ms = 10
+                    if self.rows and self.rows[-1][0] in ("mu", "ku", "md") \
+                            and len(self.rows[-1]) >= 3 and self.rows[-1][2] == 0:
+                        self.rows[-1][2] = delay_ms
+                    else:
+                        self._add(["wait", delay_ms])
                     i += 1
                     continue
 
@@ -1065,7 +1220,12 @@ class XmouseConverter(BaseConverter):
 
                 if inner == "WAIT":
                     if i + 1 < len(tokens) and tokens[i + 1].isdigit():
-                        self._add(["wait", int(tokens[i + 1])])
+                        wait_ms = int(tokens[i + 1])
+                        if self.rows and self.rows[-1][0] in ("mu", "ku", "md") \
+                                and len(self.rows[-1]) >= 3 and self.rows[-1][2] == 0:
+                            self.rows[-1][2] = wait_ms
+                        else:
+                            self._add(["wait", wait_ms])
                         i += 2
                     else:
                         self._add(["wait", 10])
@@ -1074,7 +1234,13 @@ class XmouseConverter(BaseConverter):
 
                 mapped = XMBC_SPECIAL_KEYS.get(inner)
                 if mapped:
-                    if mapped.startswith("__mouse_"):
+                    if mapped.startswith("__mousedown_"):
+                        btn = mapped.replace("__mousedown_", "")
+                        self._add(["md", btn, 0])
+                    elif mapped.startswith("__mouseup_"):
+                        btn = mapped.replace("__mouseup_", "")
+                        self._add(["mu", btn, 0])
+                    elif mapped.startswith("__mouse_"):
                         btn = mapped.replace("__mouse_", "")
                         self._add(["md", btn, 0])
                         self._add(["mu", btn, 0])
@@ -1134,6 +1300,239 @@ class XmouseConverter(BaseConverter):
             tokens.append(text[i])
             i += 1
         return tokens
+
+
+class WebUIJsonConverter(BaseConverter):
+    """从 WebUI JSON 格式导入（用于将宏转出到其他格式）。"""
+
+    _VALID_CMDS = frozenset({
+        "kd", "ku", "md", "mu", "wait", "move_to", "view", "scroll", "loop", "note", "import",
+    })
+
+    def convert(self, source: str) -> list[list[Any]]:
+        self.rows = []
+        self.converted_count = 0
+        self.skipped_count = 0
+        try:
+            rows = _parse_jsonc_str(source)
+        except Exception as exc:
+            raise ValueError(f"WebUI JSON 解析失败: {exc}")
+        if not isinstance(rows, list):
+            raise ValueError("WebUI JSON 顶层必须是数组")
+        self.rows = self._process_rows(rows)
+        return self.rows
+
+    def _process_rows(self, rows: list[Any]) -> list[list[Any]]:
+        result: list[list[Any]] = []
+        for row in rows:
+            if not isinstance(row, list) or not row:
+                continue
+            cmd = str(row[0]).strip().lower()
+            if cmd == "loop" and len(row) >= 3 and isinstance(row[2], list):
+                result.append(["loop", row[1], self._process_rows(row[2])])
+                self.converted_count += 1
+            elif cmd in self._VALID_CMDS:
+                new_row = list(row)
+                # normalize key names: handle keyboard-lib space style (from Macro Builder)
+                if cmd in ("kd", "ku") and len(new_row) >= 2:
+                    new_row[1] = _normalize_key_generic(str(new_row[1]))
+                result.append(new_row)
+                self.converted_count += 1
+            else:
+                self._skip(f"未知指令 '{cmd}'")
+        return result
+
+
+class GenericJsonConverter(BaseConverter):
+    """从通用录制 JSON 事件流格式导入。"""
+
+    _DELAY_TYPES = frozenset({"delay", "wait", "sleep", "pause"})
+
+    def convert(self, source: str) -> list[list[Any]]:
+        self.rows = []
+        self.converted_count = 0
+        self.skipped_count = 0
+        try:
+            data: Any = _parse_jsonc_str(source)
+        except Exception as exc:
+            raise ValueError(f"JSON 解析失败: {exc}")
+
+        if isinstance(data, dict):
+            for _key in ("events", "actions", "data", "steps", "records", "list", "macro"):
+                if isinstance(data.get(_key), list):
+                    data = data[_key]
+                    break
+
+        if not isinstance(data, list):
+            raise ValueError("通用录制 JSON 应为事件数组，或含 events/actions 等键的对象")
+
+        events = [ev for ev in data if isinstance(ev, dict)]
+        has_delay_events = any(self._event_type(ev) in self._DELAY_TYPES for ev in events)
+
+        prev_t: float | None = None
+        for ev in events:
+            etype = self._event_type(ev)
+
+            if not has_delay_events:
+                t = self._event_time(ev)
+                if t is not None:
+                    if prev_t is not None and t - prev_t > 0:
+                        ms = int(round(t - prev_t))
+                        if ms > 0:
+                            self._add(["wait", ms])
+                    prev_t = t
+
+            self._process_event(ev, etype)
+
+        if not self.rows:
+            raise ValueError("未从录制 JSON 解析到任何动作")
+        return self.rows
+
+    @staticmethod
+    def _event_type(ev: dict) -> str:
+        return str(ev.get("type") or ev.get("event") or ev.get("action") or "").strip().lower()
+
+    @staticmethod
+    def _event_time(ev: dict) -> float | None:
+        for k in ("time", "timestamp", "t", "ts", "at"):
+            if k in ev and isinstance(ev[k], (int, float)):
+                return float(ev[k])
+        return None
+
+    def _process_event(self, ev: dict, etype: str) -> None:
+        if etype in self._DELAY_TYPES:
+            for k in ("ms", "duration", "delay", "value", "time", "wait"):
+                if k in ev and isinstance(ev[k], (int, float)):
+                    ms = int(round(float(ev[k])))
+                    if ms > 0:
+                        self._add(["wait", ms])
+                    return
+            return
+
+        is_mouse = "mouse" in etype or "button" in etype or "click" in etype
+        is_key = "key" in etype or "key" in ev or "code" in ev or "vk" in ev
+
+        if is_mouse and not (is_key and "mouse" not in etype and "click" not in etype):
+            btn = _normalize_button_generic(ev.get("button", ev.get("which", "left")))
+            if "click" in etype and "down" not in etype and "up" not in etype:
+                self._add(["md", btn, 0])
+                self._add(["mu", btn, 0])
+            elif _is_up_event(ev, etype):
+                self._add(["mu", btn, 0])
+            else:
+                self._add(["md", btn, 0])
+            return
+
+        if is_key:
+            key = self._get_key_name(ev)
+            if key is None:
+                self._skip(f"无法识别按键: {list(ev.items())[:3]}")
+                return
+            if "press" in etype or "tap" in etype or "type" in etype:
+                self._add(["kd", key, 0])
+                self._add(["ku", key, 0])
+            elif _is_up_event(ev, etype):
+                self._add(["ku", key, 0])
+            else:
+                self._add(["kd", key, 0])
+            return
+
+        self._skip(f"未知事件类型 '{etype}'")
+
+    @staticmethod
+    def _get_key_name(ev: dict) -> str | None:
+        if "key" in ev and str(ev["key"]).strip():
+            k = str(ev["key"])
+            if len(k) == 1:
+                return _normalize_key_generic(k)
+            mapped = _parse_web_key_code(k)
+            return _normalize_key_generic(mapped or k)
+        if "code" in ev:
+            mapped = _parse_web_key_code(str(ev["code"]))
+            if mapped:
+                return _normalize_key_generic(mapped)
+            return _normalize_key_generic(str(ev["code"]))
+        return None
+
+
+class CstructConverter(BaseConverter):
+    """从 C 数组风格格式导入。每行形如 {"key"/"mouse", 键名, 鼠标键, 动作, 延时}。"""
+
+    _ROW_RE = re.compile(r'\{\s*"(?:mouse|key)"\s*,[^{}]*\}', re.I)
+
+    def convert(self, source: str) -> list[list[Any]]:
+        self.rows = []
+        self.converted_count = 0
+        self.skipped_count = 0
+        rows = self._ROW_RE.findall(source)
+        if not rows:
+            raise ValueError(
+                'C 数组宏未解析到任何行（每行应形如 {"mouse","","left","click",0}）'
+            )
+        for row in rows:
+            self._process_row(row)
+        if not self.rows:
+            raise ValueError("未从 C 数组解析到任何动作")
+        return self.rows
+
+    @staticmethod
+    def _fields(row: str) -> list[str]:
+        inner = row.strip().lstrip("{").rstrip("}")
+        out = []
+        for part in inner.split(","):
+            p = part.strip()
+            if len(p) >= 2 and p[0] in ('"', "'") and p[-1] == p[0]:
+                p = p[1:-1]
+            out.append(p.strip())
+        while out and out[-1] == "":
+            out.pop()
+        return out
+
+    def _process_row(self, row: str) -> None:
+        f = self._fields(row)
+        if len(f) < 4:
+            self._skip(f"字段不足: {row!r}")
+            return
+
+        kind = f[0].lower()
+        key_name = f[1]
+        button_name = f[2]
+        action = f[3].lower()
+        try:
+            delay = int(round(float(f[4]))) if len(f) >= 5 and f[4] else 0
+        except (ValueError, TypeError):
+            delay = 0
+
+        if kind == "key":
+            k = _normalize_key_generic(key_name)
+            if action in ("down", "press_down", "kd"):
+                self._add(["kd", k, 0])
+            elif action in ("up", "release", "ku"):
+                self._add(["ku", k, 0])
+            elif action in ("click", "press", "tap", "stroke"):
+                self._add(["kd", k, 0])
+                self._add(["ku", k, 0])
+            else:
+                self._skip(f"未知按键动作: {f[3]!r}")
+                return
+        elif kind == "mouse":
+            b = _normalize_button_generic(button_name)
+            if action in ("down", "press_down", "md"):
+                self._add(["md", b, 0])
+            elif action in ("up", "release", "mu"):
+                self._add(["mu", b, 0])
+            elif action in ("click", "press", "tap", "mc"):
+                self._add(["md", b, 0])
+                self._add(["mu", b, 0])
+            else:
+                self._skip(f"未知鼠标动作: {f[3]!r}")
+                return
+        else:
+            self._skip(f"未知行类型: {f[0]!r}")
+            return
+
+        if delay > 0:
+            self._add(["wait", delay])
 
 
 class BaseExporter(ABC):
@@ -1931,6 +2330,11 @@ class XmbcsExporter(BaseExporter):
         lines.append(f'Button4SimKey={simkey_tokens}')
         return '\n'.join(lines) + '\n'
 
+    def export_dsl(self) -> str:
+        """仅返回裸 DSL 字符串，不含 INI 包装。"""
+        self.warnings = []
+        return self._build_simkey(self.rows) + "\n"
+
     def _build_simkey(self, rows: list[list[Any]]) -> str:
         tokens: list[str] = []
         active_mods: list[str] = []
@@ -2078,6 +2482,56 @@ class XmbcsExporter(BaseExporter):
             if digit.isdigit():
                 return f'NUMPAD{digit}'
         return None
+
+
+class WebUIFrameExporter(BaseExporter):
+    """将 WebUI JSON 的毫秒延迟转换为帧延迟格式（"Nf" 字符串）输出。"""
+
+    def __init__(self, rows: list[list[Any]], fps: int = 60) -> None:
+        super().__init__(rows)
+        self.fps = max(1, fps)
+
+    def export(self) -> str:
+        self.warnings = []
+        ms_per_frame = 1000.0 / self.fps
+
+        def to_frame(delay_val: Any) -> int | str:
+            if _is_frame_delay_str(delay_val):
+                return delay_val
+            try:
+                ms = int(round(float(delay_val)))
+            except (TypeError, ValueError):
+                return 0
+            if ms <= 0:
+                return 0
+            n = round(ms / ms_per_frame)
+            return f"{n}f" if n >= 1 else ms
+
+        converted = self._convert_rows(self.rows, to_frame)
+        normalized = _normalize_rows_for_save(converted)
+        lines = ["["]
+        lines.extend(_serialize_rows_with_notes(normalized, indent_level=1))
+        lines.append("]")
+        return "\n".join(lines) + "\n"
+
+    def _convert_rows(self, rows: list[list[Any]], to_frame: Any) -> list[list[Any]]:
+        result: list[list[Any]] = []
+        for row in rows:
+            if not isinstance(row, list) or not row:
+                result.append(row)
+                continue
+            cmd = str(row[0]).strip().lower()
+            if cmd == "loop" and len(row) >= 3 and isinstance(row[2], list):
+                result.append([row[0], row[1], self._convert_rows(row[2], to_frame)])
+                continue
+            idx = _DELAY_INDEX.get(cmd)
+            if idx is not None and len(row) > idx:
+                new_row = list(row)
+                new_row[idx] = to_frame(row[idx])
+                result.append(new_row)
+            else:
+                result.append(row)
+        return result
 
 
 _XBC_MOD_MAP: dict[str, str] = {
@@ -2253,11 +2707,14 @@ def detect_format(file_path: str, source: str | None = None) -> str | None:
 
 
 def create_converter(fmt: str) -> BaseConverter:
-    converters = {
+    converters: dict[str, type[BaseConverter]] = {
         "razer": RazerConverter,
         "logitech": LogitechConverter,
         "ahk": AhkConverter,
         "xmouse": XmouseConverter,
+        "webui": WebUIJsonConverter,
+        "generic_json": GenericJsonConverter,
+        "cstruct": CstructConverter,
     }
     cls = converters.get(fmt)
     if cls is None:
@@ -2382,7 +2839,7 @@ def create_exporter(fmt: str, rows: list[list[Any]], is_v2: bool = False, synaps
                      logitech_ghub: bool = True, screen_width: int = 1920, screen_height: int = 1080,
                      fps: int | None = None) -> BaseExporter:
     frame_convert_count = 0
-    if fps is not None:
+    if fps is not None and fmt != "webui_frame":
         rows, frame_convert_count = _convert_frame_delays(rows, fps)
 
     exporters: dict[str, type[BaseExporter]] = {
@@ -2390,6 +2847,8 @@ def create_exporter(fmt: str, rows: list[list[Any]], is_v2: bool = False, synaps
         "logitech": LogitechLuaExporter,
         "ahk": AhkExporter,
         "xmouse": XmbcsExporter,
+        "xmouse_dsl": XmbcsExporter,
+        "webui_frame": WebUIFrameExporter,
     }
     cls = exporters.get(fmt)
     if cls is None:
@@ -2400,6 +2859,8 @@ def create_exporter(fmt: str, rows: list[list[Any]], is_v2: bool = False, synaps
         exporter = cls(rows, synapse_version=synapse_version)
     elif fmt == "logitech":
         exporter = cls(rows, ghub=logitech_ghub, screen_width=screen_width, screen_height=screen_height)
+    elif fmt == "webui_frame":
+        exporter = cls(rows, fps=fps if fps is not None else 60)
     else:
         exporter = cls(rows)
 
@@ -2470,6 +2931,8 @@ def export_file(source_path: str, fmt: str, output_path: str | None = None, is_v
         version_tag = f" v{synapse_version}"
     elif fmt == "logitech":
         version_tag = " G HUB" if logitech_ghub else " LGS"
+    elif fmt == "webui_frame":
+        version_tag = f" @{fps if fps is not None else 60}fps"
     print(f"导出格式: {fmt}{version_tag}")
     print(f"源文件: {src}")
     print(f"输出: {out}")
@@ -2490,15 +2953,15 @@ def main() -> None:
     parser.add_argument("source_file", help="源宏文件路径")
     parser.add_argument(
         "--format",
-        choices=["auto", "razer", "logitech", "ahk", "xmouse"],
+        choices=["auto", "razer", "logitech", "ahk", "xmouse", "webui", "generic_json", "cstruct"],
         default="auto",
         help="源格式 (默认: auto, 根据文件扩展名自动检测)",
     )
     parser.add_argument("--output", help="输出文件路径")
     parser.add_argument(
         "--export",
-        choices=["razer", "logitech", "ahk", "xmouse"],
-        help="导出模式: 将项目JSON宏导出为指定外部格式",
+        choices=["razer", "logitech", "ahk", "xmouse", "webui_frame"],
+        help="导出模式: 将项目JSON宏导出为指定外部格式 (webui_frame=动作帧格式)",
     )
     parser.add_argument(
         "--ahk-v2",
@@ -2509,7 +2972,7 @@ def main() -> None:
         "--fps",
         type=int,
         default=60,
-        help="导出时帧延迟(Nf)转ms的目标帧率 (默认: 60)",
+        help="帧率: 导出时Nf↔ms转换所用帧率，webui_frame导出时ms转Nf也用此值 (默认: 60)",
     )
 
     args = parser.parse_args()
@@ -2517,15 +2980,15 @@ def main() -> None:
     try:
         if args.export:
             is_v2 = args.ahk_v2 if args.export == "ahk" else False
-            # 检查是否含帧延迟，用默认fps时警告
-            try:
-                src = Path(args.source_file)
-                if src.exists():
-                    parsed = _load_json_with_comments(src)
-                    if isinstance(parsed, list) and _has_frame_delay(parsed) and args.fps == 60:
-                        print(f"警告: 宏含帧延迟，使用默认 {args.fps}fps 转换，可用 --fps 指定实际帧率")
-            except Exception:
-                pass
+            if args.export != "webui_frame":
+                try:
+                    src = Path(args.source_file)
+                    if src.exists():
+                        parsed = _load_json_with_comments(src)
+                        if isinstance(parsed, list) and _has_frame_delay(parsed) and args.fps == 60:
+                            print(f"警告: 宏含帧延迟，使用默认 {args.fps}fps 转换，可用 --fps 指定实际帧率")
+                except Exception:
+                    pass
             export_file(args.source_file, args.export, args.output, is_v2=is_v2, fps=args.fps)
         else:
             fmt = args.format if args.format != "auto" else None
