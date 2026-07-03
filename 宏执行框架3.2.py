@@ -2025,7 +2025,7 @@ def _append_standby_event(events, meta, offset_ns, item, use_ic_key, use_ic_mous
         meta.append((desc, offset_ns, atype))
 
 
-def compile_to_timeline(compiled_macro, mode="normal"):
+def compile_to_timeline(compiled_macro, mode="normal", speed_factor=1.0):
     """把 compiled_macro 转成 standby 时间线格式。
 
     compiled_macro 每项: (func, delay_s, type, desc, raw_info)
@@ -2035,6 +2035,9 @@ def compile_to_timeline(compiled_macro, mode="normal"):
 
     时序语义: delay_s 是"执行本动作之后"到下一动作的间隔，与 execute_macro_once
     绝对时间线一致——动作先在当前 offset 触发，之后 offset 才向前推进 delay_s。
+
+    speed_factor: 倍速因子（>1 更快，<1 更慢）。仅缩放 ms 延迟的 offset_ns，
+                  帧延迟事件 (ACT_RTSS_WAIT_FRAMES) 不受影响，始终保持等 N 帧。
 
     mode:
       "normal"   — 单段宏。帧延迟 (delay_s<0) 视为 0, 由 Python 层段间处理
@@ -2047,6 +2050,10 @@ def compile_to_timeline(compiled_macro, mode="normal"):
     se = _standby_engine_module
     if se is None or se is False:
         raise RuntimeError("standby engine not initialized")
+
+    # 倍速: ms 延迟按 1/speed_factor 缩放；帧延迟不缩放（保持帧同步语义）
+    sf = max(0.05, float(speed_factor))
+    inv_sf = 1.0 / sf
 
     events = []
     meta = []
@@ -2063,6 +2070,11 @@ def compile_to_timeline(compiled_macro, mode="normal"):
         meta.append((f"{label}+{frames}f", 0, ACT_RTSS_WAIT_FRAMES))
         offset_ns = 0
 
+    def _advance_ms_offset(delay_s):
+        """按 speed_factor 缩放 ms 延迟并推进段内 offset_ns。"""
+        nonlocal offset_ns
+        offset_ns += int(max(0.0, delay_s) * 1_000_000_000 * inv_sf)
+
     for item in compiled_macro:
         func, delay_s, atype, desc, raw_info = item
         is_frame_barrier = segmented and delay_s < -0.5
@@ -2071,7 +2083,7 @@ def compile_to_timeline(compiled_macro, mode="normal"):
             if is_frame_barrier:
                 _emit_frame_barrier(int(-delay_s + 0.5), "wait")
             else:
-                offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+                _advance_ms_offset(delay_s)
             continue
 
         if atype == "batch":
@@ -2079,14 +2091,14 @@ def compile_to_timeline(compiled_macro, mode="normal"):
                 if is_frame_barrier:
                     _emit_frame_barrier(int(-delay_s + 0.5), "batch")
                 else:
-                    offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+                    _advance_ms_offset(delay_s)
                 continue
             for sub_item in raw_info.get("actions", []):
                 _append_standby_event(events, meta, offset_ns, sub_item, use_ic_key, use_ic_mouse, se)
             if is_frame_barrier:
                 _emit_frame_barrier(int(-delay_s + 0.5), "batch")
             else:
-                offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+                _advance_ms_offset(delay_s)
             continue
 
         # 普通动作：先在当前 offset 触发，再推进 delay_s
@@ -2094,7 +2106,7 @@ def compile_to_timeline(compiled_macro, mode="normal"):
         if is_frame_barrier:
             _emit_frame_barrier(int(-delay_s + 0.5), desc)
         else:
-            offset_ns += int(max(0.0, delay_s) * 1_000_000_000)
+            _advance_ms_offset(delay_s)
 
     return events, meta
 
@@ -2136,10 +2148,12 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
     trace_mode = str(_opt.get("test_trace_mode", TEST_TRACE_OUTPUT_MODE)).lower()
     if trace_mode not in ("realtime", "final"):
         trace_mode = "final"
+    # 倍速: 新引擎从 options 传，旧引擎走全局 EXEC_SPEED_FACTOR
+    local_speed = _opt.get("speed_factor", EXEC_SPEED_FACTOR)
 
     try:
-        # 1. 编译时间线
-        events, events_meta = compile_to_timeline(compiled_macro)
+        # 1. 编译时间线 (ms 延迟按 speed_factor 缩放, 帧延迟不缩放)
+        events, events_meta = compile_to_timeline(compiled_macro, speed_factor=local_speed)
         if not events:
             print(f"[standby] {macro_name} 无可执行事件, 跳过")
             return True
@@ -2292,6 +2306,8 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
     trace_mode = str(_opt.get("test_trace_mode", TEST_TRACE_OUTPUT_MODE)).lower()
     if trace_mode not in ("realtime", "final"):
         trace_mode = "final"
+    # 倍速: 新引擎从 options 传，旧引擎走全局 EXEC_SPEED_FACTOR
+    local_speed = _opt.get("speed_factor", EXEC_SPEED_FACTOR)
 
     ST_SEGMENT_START = getattr(se, "ST_SEGMENT_START", 0x80000000)
     ACT_RTSS_WAIT = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
@@ -2307,8 +2323,8 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
         if hasattr(se, "set_stats_enabled"):
             se.set_stats_enabled(1 if local_test_trace else 0)
 
-        # 2. 编译分段时间线 (含 ACT_RTSS_WAIT_FRAMES)
-        events, events_meta = compile_to_timeline(compiled_macro, mode="segmented")
+        # 2. 编译分段时间线 (含 ACT_RTSS_WAIT_FRAMES; ms 延迟按 speed_factor 缩放, 帧延迟不缩放)
+        events, events_meta = compile_to_timeline(compiled_macro, mode="segmented", speed_factor=local_speed)
         if not events:
             print(f"[standby+RTSS] {macro_name}: 无可执行事件, 跳过")
             return True
@@ -2563,7 +2579,9 @@ def trigger_macro(trigger_key, start_paused=False):
             # 简单线性宏走 native standby 线程, 执行段绕过 Python/GIL
             if ENABLE_STANDBY_ENGINE and _standby_available():
                 try:
-                    ok = _execute_via_standby(worker_compiled, worker_stop, worker_macro_name)
+                    # 传 options 让 standby 路径也应用 EXEC_SPEED_FACTOR (ms 延迟缩放)
+                    _standby_opts = {"speed_factor": EXEC_SPEED_FACTOR}
+                    ok = _execute_via_standby(worker_compiled, worker_stop, worker_macro_name, _standby_opts)
                     if ok:
                         return
                     if not STANDBY_FALLBACK_ON_FAIL:

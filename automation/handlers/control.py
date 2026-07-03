@@ -153,6 +153,8 @@ def _handle_call_script_sync(node: ExecNode, ctx: ExecContext):
     }
 
     if len(compiled) <= 2:
+        # 短宏路径同样应用 speed_factor (帧延迟 delay<0 不走 precise_sleep, 由语义保证)
+        sf = max(0.05, float(opts.get("speed_factor", 1.0)))
         for func, delay, _, _, _ in compiled:
             if ctx.stop_event.is_set():
                 break
@@ -161,8 +163,9 @@ def _handle_call_script_sync(node: ExecNode, ctx: ExecContext):
                     func()
                 except Exception as e:
                     print(f"[新引擎] 同步闭包执行出错: {e}")
+            # 仅对 ms 延迟 (delay>0) 应用倍速; 帧延迟 (delay<0) 此路径无法处理, 跳过
             if delay > 0:
-                precise_sleep(delay, ctx.stop_event, pause_event=_get_pause_event(ctx))
+                precise_sleep(delay / sf, ctx.stop_event, pause_event=_get_pause_event(ctx))
     else:
         _oe.execute_macro_once(compiled, ctx.stop_event, ctx.pause_event, macro_name=os.path.basename(path), options=opts)
 
