@@ -400,10 +400,20 @@ class RazerConverter(BaseConverter):
         # In v3, <Delay> on action = the action's own delay (no separate <Type>0> events)
         # In v4, action events don't have <Delay>, delays are separate <Type>0> events
         has_v3_delay = any(
-            evt[0] not in ("wait", "note") and evt[1].get("_delay", 0) > 0
+            evt[0] not in ("wait", "note", "note_v3_repeat", "loop_start", "loop_end")
+            and evt[1].get("_delay", 0) > 0
             for evt in raw_events
         )
 
+        self._process_events(raw_events, has_v3_delay)
+        return self.rows
+
+    def _process_events(
+        self,
+        raw_events: list[tuple[str, dict[str, Any]]],
+        has_v3_delay: bool,
+    ) -> None:
+        """递归处理 raw_events 为 IR rows，支持嵌套 Type=6 循环。"""
         i = 0
         n = len(raw_events)
 
@@ -416,6 +426,77 @@ class RazerConverter(BaseConverter):
 
         while i < n:
             evt_type, evt_data = raw_events[i]
+
+            if evt_type == "note_v3_repeat":
+                self._add(["note", "v3 原有循环事件（已展开或丢失）"])
+                i += 1
+                continue
+
+            if evt_type == "loop_start":
+                count = int(evt_data.get("count", 0))
+                if count <= 0:
+                    self._skip(f"循环次数 {count} 无效")
+                    # 跳过整个未闭合或无效的循环体
+                    depth = 1
+                    j = i + 1
+                    while j < n and depth > 0:
+                        t = raw_events[j][0]
+                        if t == "loop_start":
+                            depth += 1
+                        elif t == "loop_end":
+                            depth -= 1
+                        j += 1
+                    i = j
+                    continue
+
+                # 找到匹配的 loop_end（支持嵌套）
+                depth = 1
+                j = i + 1
+                body_events: list[tuple[str, dict[str, Any]]] = []
+                while j < n and depth > 0:
+                    t = raw_events[j][0]
+                    if t == "loop_start":
+                        depth += 1
+                        body_events.append(raw_events[j])
+                    elif t == "loop_end":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                        body_events.append(raw_events[j])
+                    else:
+                        body_events.append(raw_events[j])
+                    j += 1
+
+                if depth != 0:
+                    self._skip("Type=6 循环未闭合")
+                    i = n
+                    continue
+
+                # 递归处理 body 到临时 rows
+                saved_rows = self.rows
+                saved_converted = self.converted_count
+                saved_skipped = self.skipped_count
+                self.rows = []
+                self.converted_count = 0
+                self.skipped_count = 0
+                self._process_events(body_events, has_v3_delay)
+                body_rows = self.rows
+                self.rows = saved_rows
+                self.converted_count = saved_converted
+                self.skipped_count = saved_skipped
+
+                if not body_rows:
+                    self._skip("空循环体")
+                else:
+                    self._add(["loop", count, body_rows])
+
+                i = j + 1
+                continue
+
+            if evt_type == "loop_end":
+                # 孤立的 loop_end，跳过
+                i += 1
+                continue
 
             if evt_type == "wait":
                 if has_v3_delay:
@@ -457,12 +538,43 @@ class RazerConverter(BaseConverter):
 
             i = j
 
-        return self.rows
-
     def _parse_event(self, event: ET.Element) -> tuple[str, dict[str, Any]] | None:
         type_text = self._text(event, "Type")
 
-        if type_text in ("actionBar", "repeat", "comment"):
+        if type_text in ("actionBar", "comment"):
+            return None
+
+        # v3 repeat 类型: v3 选择回退展开策略，转为 note 提示用户循环已丢失
+        if type_text == "repeat":
+            return ("note_v3_repeat", {})
+
+        # v4 Type=6 LoopEvent: 循环边界（State=0 开始, State=1 结束）
+        if type_text == "6":
+            loop_event = event.find("LoopEvent")
+            if loop_event is None:
+                self._skip("Type=6 事件缺少 LoopEvent")
+                return None
+            state_text = self._text(loop_event, "State")
+            try:
+                state = int(state_text) if state_text is not None else 0
+            except ValueError:
+                self._skip(f"LoopEvent State 非数字: {state_text}")
+                return None
+            number_text = self._text(event, "Number")
+            try:
+                count = int(number_text) if number_text else 0
+            except ValueError:
+                count = 0
+            if state == 0:
+                return ("loop_start", {"count": count})
+            elif state == 1:
+                return ("loop_end", {})
+            else:
+                self._skip(f"未知 LoopEvent State {state}")
+                return None
+
+        # Type=2 带 Number: Synapse 4 UI 点击"循环"按钮时插入的触发标记事件，跳过
+        if type_text == "2" and self._text(event, "Number") is not None:
             return None
 
         delay = int(self._text(event, "Delay") or "0")
@@ -565,19 +677,160 @@ class LogitechConverter(BaseConverter):
     _RE_GET_KEY = re.compile(r'GetKeyState\s*\(', re.I)
     _RE_GET_TIME = re.compile(r'GetRunningTime\s*\(', re.I)
     _RE_MOVE_MOUSE_WHEEL = re.compile(r'MoveMouseWheel\s*\(\s*(-?\d+)\s*\)', re.I)
+    _RE_FOR_NUMERIC = re.compile(
+        r'^for\s+(\w+)\s*=\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(-?\d+))?\s*do\b(.*)$',
+        re.I,
+    )
 
     def convert(self, source: str) -> list[list[Any]]:
         self.rows = []
         self.converted_count = 0
         self.skipped_count = 0
 
-        for line in source.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("--") or stripped.startswith("//"):
-                continue
-            self._parse_line(stripped)
+        lines = source.splitlines()
+        self._parse_lines(lines, 0, len(lines))
 
         return self.rows
+
+    def _parse_lines(self, lines: list[str], start: int, end: int) -> None:
+        """递归解析多行 Lua，支持 for 计数循环嵌套。"""
+        i = start
+        while i < end:
+            stripped = lines[i].strip()
+            if not stripped or stripped.startswith("--") or stripped.startswith("//"):
+                i += 1
+                continue
+
+            # for var = start, stop[, step] do ... end
+            m_for = self._RE_FOR_NUMERIC.match(stripped)
+            if m_for:
+                var_name = m_for.group(1)
+                start_val = int(m_for.group(2))
+                end_val = int(m_for.group(3))
+                step_val = int(m_for.group(4)) if m_for.group(4) else 1
+                after_do = m_for.group(5).strip()
+
+                body_lines, next_i = self._collect_lua_block(lines, i, end, after_do)
+
+                if step_val != 1:
+                    self._skip(f"for step={step_val} 不支持（仅支持 step=1）")
+                else:
+                    count = end_val - start_val + 1
+                    if count <= 0:
+                        self._skip(f"for 循环次数 {count} 无效")
+                    else:
+                        body_text = ' '.join(body_lines)
+                        if re.search(r'\b' + re.escape(var_name) + r'\b', body_text):
+                            self._skip(f"循环体引用循环变量 {var_name}（IR 无法表达）")
+                        else:
+                            saved_rows = self.rows
+                            saved_converted = self.converted_count
+                            saved_skipped = self.skipped_count
+                            self.rows = []
+                            self.converted_count = 0
+                            self.skipped_count = 0
+                            self._parse_lines(body_lines, 0, len(body_lines))
+                            body_rows = self.rows
+                            self.rows = saved_rows
+                            self.converted_count = saved_converted
+                            self.skipped_count = saved_skipped
+
+                            if not body_rows:
+                                self._skip("空循环体")
+                            else:
+                                self._add(["loop", count, body_rows])
+
+                i = next_i
+                continue
+
+            # while cond do ... end — 条件循环，跳过+警告
+            if re.match(r'while\b', stripped, re.I):
+                after_do_match = re.search(r'\bdo\b\s*(.*)$', stripped, re.I)
+                after_do = after_do_match.group(1).strip() if after_do_match else ''
+                _, next_i = self._collect_lua_block(lines, i, end, after_do)
+                self._skip("while (条件循环不支持)")
+                i = next_i
+                continue
+
+            # repeat ... until cond — 条件循环，跳过+警告
+            if re.match(r'repeat\b', stripped, re.I):
+                depth = 1
+                j = i + 1
+                while j < end and depth > 0:
+                    l = lines[j].strip()
+                    if not l or l.startswith('--'):
+                        j += 1
+                        continue
+                    depth += len(re.findall(r'\brepeat\b', l))
+                    depth -= len(re.findall(r'\buntil\b', l))
+                    if depth == 0:
+                        j += 1
+                        break
+                    j += 1
+                self._skip("repeat (条件循环不支持)")
+                i = j
+                continue
+
+            # for ... in ... do — 迭代器循环，跳过+警告
+            if re.match(r'for\s+\w+\s+in\b', stripped, re.I):
+                after_do_match = re.search(r'\bdo\b\s*(.*)$', stripped, re.I)
+                after_do = after_do_match.group(1).strip() if after_do_match else ''
+                _, next_i = self._collect_lua_block(lines, i, end, after_do)
+                self._skip("for-in (迭代器循环不支持)")
+                i = next_i
+                continue
+
+            self._parse_line(stripped)
+            i += 1
+
+    def _collect_lua_block(
+        self,
+        lines: list[str],
+        start: int,
+        end: int,
+        after_do: str,
+    ) -> tuple[list[str], int]:
+        """从 start 行（已匹配 for/while ... do）收集到匹配的 end。"""
+        body_lines: list[str] = []
+
+        # 同行 `... do ... end`（单行形式）
+        if after_do:
+            end_idx = after_do.rfind('end')
+            if end_idx >= 0:
+                inner = after_do[:end_idx].strip()
+                if inner:
+                    body_lines.append(inner)
+                return body_lines, start + 1
+            else:
+                body_lines.append(after_do)
+
+        # 多行收集：用 do/end 词边界深度跟踪
+        depth = 1
+        i = start + 1
+        while i < end and depth > 0:
+            l = lines[i].strip()
+            if not l or l.startswith('--'):
+                i += 1
+                continue
+
+            do_count = len(re.findall(r'\bdo\b', l))
+            end_count = len(re.findall(r'\bend\b', l))
+
+            depth += do_count
+            depth -= end_count
+
+            if depth == 0:
+                end_idx = l.rfind('end')
+                before = l[:end_idx].rstrip()
+                if before:
+                    body_lines.append(before)
+                i += 1
+                break
+            else:
+                body_lines.append(l)
+            i += 1
+
+        return body_lines, i
 
     def _map_key(self, raw: str) -> str | None:
         key = raw.strip().lower()
@@ -1616,9 +1869,34 @@ class RazerXmlExporter(BaseExporter):
             if cmd == "loop":
                 count = max(1, int(float(row[1])) if len(row) >= 2 else 1)
                 block = row[2] if len(row) >= 3 and isinstance(row[2], list) else []
-                inner_events = self._build_events(block)
-                for _ in range(count):
+
+                if not block:
+                    # 空循环跳过
+                    i += 1
+                    continue
+
+                if self.synapse_version == 4:
+                    # v4: 生成 Type=6 配对（不展开），保留原生循环语义
+                    flush_delay()
+                    raw_events.append({
+                        "Type": "6",
+                        "LoopEvent": {"State": "0"},
+                        "Number": str(count),
+                        "_id": "",
+                    })
+                    inner_events = self._build_events(block)
                     raw_events.extend(inner_events)
+                    raw_events.append({
+                        "Type": "6",
+                        "LoopEvent": {"State": "1"},
+                        "Number": str(count),
+                        "_id": "",
+                    })
+                else:
+                    # v3: 回退展开（v3 XML 无原生循环语法）
+                    inner_events = self._build_events(block)
+                    for _ in range(count):
+                        raw_events.extend(inner_events)
                 i += 1
                 continue
 
@@ -1776,6 +2054,18 @@ class RazerXmlExporter(BaseExporter):
                     lines.append('            </MouseMovementEvent>')
                 lines.append('         </MouseMovement>')
                 lines.append('         <selected>false</selected>')
+            elif evt["Type"] == "6":
+                id_val = evt.get("_id", "")
+                if id_val:
+                    lines.append(f'         <Id>{id_val}</Id>')
+                else:
+                    lines.append('         <Id/>')
+                lines.append(f'         <Number>{evt["Number"]}</Number>')
+                lines.append('         <LoopEvent>')
+                lines.append(f'            <State>{evt["LoopEvent"]["State"]}</State>')
+                lines.append('         </LoopEvent>')
+                lines.append('         <selected>false</selected>')
+                lines.append('         <isPairing>false</isPairing>')
 
             if evt["Type"] == "0":
                 lines.append('         <selected>false</selected>')
