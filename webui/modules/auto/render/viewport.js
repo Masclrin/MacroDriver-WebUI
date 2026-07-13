@@ -32,7 +32,8 @@ function _updateMinimap() {
     var ctx = mmCv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(10,14,20,0.92)';
+    var mmBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-deep').trim();
+    ctx.fillStyle = mmBg || 'rgba(10,14,20,0.92)';
     ctx.fillRect(0, 0, w, h);
 
     var hasContent = _s._nodeList.length > 0 || _s._annotations.length > 0 || _s._groups.length > 0;

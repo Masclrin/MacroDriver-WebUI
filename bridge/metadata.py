@@ -161,6 +161,10 @@ PARAM_DOCS = {
         "desc": "是否允许同一个触发键绑定多个宏并发运行。",
         "recommend": "默认关闭。仅在明确需要同键并发时开启。",
     },
+    "webui.UI_THEME_LIGHT": {
+        "desc": "界面主题切换：开启使用亮色（白）主题，关闭使用暗色主题。",
+        "recommend": "默认关闭（暗色）。切换后即时预览，保存参数后写入配置持久化。",
+    },
     "automation_editor.HOTKEY_RUN": {
         "desc": "自动化编辑器中运行当前脚本的快捷键。",
         "recommend": "建议与暂停/停止键错开，避免误触。",
@@ -663,6 +667,11 @@ PARAM_SCHEMA = {
             "type": "bool",
             "label": "允许单按键绑定多宏并发",
             "tier": "advanced",
+        },
+        "UI_THEME_LIGHT": {
+            "type": "bool",
+            "label": "使用亮色主题",
+            "tier": "basic",
         },
     },
     "automation_editor": {

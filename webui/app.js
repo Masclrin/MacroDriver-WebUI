@@ -22,6 +22,7 @@ import { pollConsole, clearConsole, popoutConsole } from './modules/console.js';
 import { refreshSnapshot, refreshListenerButtonState } from './modules/dashboard.js';
 import { initExtraTab } from './modules/extra.js';
 import { initConverterTab } from './modules/converter.js';
+import { initThemeFromServer } from './modules/theme.js';
 
 state.renderEditorMacroBrowser = renderEditorMacroBrowser;
 state.renderRecordMacroBrowser = renderRecordMacroBrowser;
@@ -164,6 +165,8 @@ async function bootstrap() {
   } catch(e) { console.error('clearConsole listener error:', e); }
 
   await waitForApi();
+
+  try { await initThemeFromServer(); console.log('theme initialized'); } catch(e) { console.error('theme init error:', e); }
 
   try {
     await switchTab('macro');

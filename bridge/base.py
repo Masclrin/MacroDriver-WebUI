@@ -36,6 +36,7 @@ class MacroBridgeBase:
 
     def __init__(self):
         self.ALLOW_MULTI_MACRO_BIND_PER_KEY = False
+        self.UI_THEME_LIGHT = False
 
         # 自动化编辑器热键设置
         self.HOTKEY_ENABLED = True
@@ -187,9 +188,12 @@ class MacroBridgeBase:
             html_path = (RESOURCE_DIR / "webui" / "console_popout.html").resolve()
             if not html_path.exists():
                 return self._fail("弹出窗口页面不存在")
+            url = html_path.as_uri()
+            if getattr(self, "UI_THEME_LIGHT", False):
+                url = f"{url}?theme=light"
             popout_window = webview.create_window(
                 title="控制台日志 - 宏驱动引擎",
-                url=html_path.as_uri(),
+                url=url,
                 js_api=self,
                 width=720,
                 height=480,

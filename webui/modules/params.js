@@ -7,6 +7,7 @@ import {
   RECOMMENDED_RANDOM_DELAY_RULES,
   HIDE_DEFAULT_FIELD_IDS,
 } from './core/constants.js';
+import { applyTheme } from './theme.js';
 
 export async function renderGlobalParams() {
   const container = q('#paramsContainer');
@@ -165,6 +166,9 @@ export async function renderGlobalParams() {
         input.dataset.currentValue = JSON.stringify(field.value);
         input.addEventListener('change', () => applyParamDependencies());
         input.addEventListener('input', () => applyParamDependencies());
+        if (field.field_id === 'webui.UI_THEME_LIGHT') {
+          input.addEventListener('change', () => applyTheme(input.checked));
+        }
 
         item.appendChild(head);
 

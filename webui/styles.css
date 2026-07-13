@@ -659,8 +659,8 @@ button.active-glow {
   transition: background 120ms;
 }
 
-.list li:hover {
-  background: rgba(22, 40, 57, 0.86);
+.list li:not(.opened):not(.active):hover {
+  background: rgba(8, 18, 28, 0.95);
 }
 
 .list li.active {
@@ -1364,6 +1364,290 @@ hr {
   padding: 8px 0 4px;
   list-style: none;
   user-select: none;
+}
+
+/* ════════════════════════════════════════════════════════════
+   亮色主题（GitHub Light 风）— 在 <html> 加 class="theme-light" 激活
+   CSS 变量由 :root.theme-light 重定义；以下仅覆盖暗色硬编码值
+   ════════════════════════════════════════════════════════════ */
+
+:root.theme-light {
+  --bg: #e4e8ec;
+  --bg-soft: #eef2f6;
+  --card: #f4f7fa;
+  --card-light: #dde3ea;
+  --text: #1f2328;
+  --muted: #656d76;
+  --line: #c8d1da;
+  --accent: #0eb6a4;
+  --accent-strong: #00a896;
+  --danger: #cf222e;
+  --warn: #9a6700;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 全局背景渐变 + 噪点（亮色版） */
+html.theme-light,
+html.theme-light body {
+  background: radial-gradient(circle at 14% 14%, #dde3ea 0%, var(--bg) 38%) no-repeat fixed;
+  background-color: var(--bg);
+}
+html.theme-light .bg-noise {
+  background-image:
+    radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(130deg, rgba(14, 182, 164, 0.06), rgba(154, 103, 0, 0.04));
+  opacity: 0.5;
+}
+
+/* 侧栏 / 顶栏 / 卡片 — 暗色渐变换为浅色 */
+html.theme-light .sidebar {
+  background: rgba(246, 248, 250, 0.88);
+}
+html.theme-light .topbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 248, 250, 0.88));
+}
+html.theme-light .card {
+  background: linear-gradient(180deg, var(--card), rgba(238, 242, 246, 0.95));
+}
+html.theme-light .topbar-toggle {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--line);
+}
+html.theme-light .pill {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.85);
+}
+html.theme-light .tab-btn {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.8);
+}
+html.theme-light .tab-btn.active {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.18), rgba(154, 103, 0, 0.14));
+  border-color: var(--accent);
+}
+
+/* 参数面板 */
+html.theme-light .param-group {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+html.theme-light .param-item {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.9);
+}
+html.theme-light .param-hover-tip {
+  color: var(--text);
+  background: var(--card);
+  border-color: var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+html.theme-light .param-tier-fold {
+  border-color: var(--line);
+  background: rgba(246, 248, 250, 0.6);
+}
+
+/* 输入框 / 按钮 / 开关 */
+html.theme-light input,
+html.theme-light select,
+html.theme-light textarea {
+  border-color: var(--line);
+  background: var(--card);
+}
+html.theme-light button {
+  border-color: var(--line);
+  background: rgba(246, 248, 250, 0.9);
+}
+html.theme-light .checkbox-inline {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+html.theme-light .switch-slider {
+  background: rgba(208, 215, 222, 0.8);
+  border-color: var(--line);
+}
+html.theme-light .switch-slider::before {
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* 列表 / 宏树 / 编辑器 */
+html.theme-light .list {
+  border-color: var(--line);
+}
+html.theme-light .list li {
+  border-bottom-color: var(--line);
+}
+html.theme-light .list li:not(.opened):not(.active):hover {
+  background: rgba(208, 215, 222, 0.95);
+}
+html.theme-light .macro-tree-toggle,
+html.theme-light .loop-toggle {
+  border-color: var(--line);
+  background: rgba(246, 248, 250, 0.7);
+  color: var(--text);
+}
+html.theme-light .editor-file-ops {
+  border-color: var(--line);
+  background: rgba(246, 248, 250, 0.5);
+}
+html.theme-light .editor-file-ops-body {
+  border-top-color: var(--line);
+}
+html.theme-light .action-inline-editor {
+  background: rgba(246, 248, 250, 0.7);
+  border-top-color: var(--line);
+}
+html.theme-light .action-inline-editor-body {
+  border-color: var(--line);
+  background: var(--card);
+}
+html.theme-light .action-list li.drag-over {
+  background: rgba(14, 182, 164, 0.12);
+}
+
+/* 控制台 */
+html.theme-light .console {
+  border-color: var(--line);
+  background: var(--bg-soft);
+  color: #1f2328;
+}
+
+/* 浮层（toast / 导入面板 / 额外功能结果 / 转换器） */
+html.theme-light .toast {
+  border-color: var(--line);
+  background: var(--card);
+}
+html.theme-light .import-result-panel {
+  border-color: var(--line);
+  background: var(--card);
+}
+html.theme-light .import-result-header {
+  border-bottom-color: var(--line);
+}
+html.theme-light .import-result-close {
+  border-color: var(--line);
+  background: rgba(246, 248, 250, 0.7);
+}
+html.theme-light .import-result-item {
+  border-bottom-color: var(--line);
+}
+html.theme-light .import-result-summary {
+  border-top-color: var(--line);
+}
+html.theme-light .extra-result {
+  background: rgba(255, 255, 255, 0.7);
+}
+html.theme-light .extra-result th,
+html.theme-light .extra-result td {
+  border-bottom-color: var(--line);
+}
+html.theme-light .extra-result kbd {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.06);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+html.theme-light .loading-spinner {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+html.theme-light .cvt-textarea {
+  background: var(--card);
+}
+html.theme-light .cvt-textarea[readonly] {
+  background: rgba(246, 248, 250, 0.7);
+  color: var(--muted);
+}
+
+/* 滚动条 */
+html.theme-light .tab-page::-webkit-scrollbar-thumb,
+html.theme-light .list::-webkit-scrollbar-thumb,
+html.theme-light .console::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: #ffffff;
+}
+html.theme-light .tab-page::-webkit-scrollbar-track,
+html.theme-light .list::-webkit-scrollbar-track,
+html.theme-light .console::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+}
+html.theme-light hr {
+  border-top-color: var(--line);
+}
+
+/* 文字色 — 暗色版浅蓝/浅色文字改为深色 */
+html.theme-light .card h3 { color: var(--muted); }
+html.theme-light .param-group h4 { color: #0969da; }
+html.theme-light .param-label-cn { color: var(--text); }
+html.theme-light .param-tier-title { color: #0969da; }
+html.theme-light .param-tier-fold > summary { color: #0969da; }
+html.theme-light .param-hint-line { color: var(--muted); }
+html.theme-light .param-default { color: var(--muted); }
+html.theme-light .param-default.is-hidden { color: #8c959f; }
+html.theme-light .macro-tree-file-dot { color: #0969da; }
+html.theme-light .macro-tree-folder .macro-tree-name { color: #0969da; }
+html.theme-light .action-list li.loop-end,
+html.theme-light .action-list li.loop-empty { color: var(--muted); }
+html.theme-light .editor-file-ops > summary { color: #0969da; }
+html.theme-light .inline-edit-label { color: var(--muted); }
+
+/* 按钮强调色 — 亮色下提高亮度，保持色相 */
+html.theme-light button.primary {
+  border-color: rgba(0, 212, 188, 0.4);
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.28), rgba(0, 166, 192, 0.24));
+  color: #0c4a3e;
+}
+html.theme-light button.primary-dim {
+  border-color: rgba(0, 212, 188, 0.22);
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.14), rgba(0, 166, 192, 0.12));
+  color: #0c4a3e;
+}
+html.theme-light button.pause-active {
+  border-color: rgba(255, 190, 85, 0.4);
+  background: linear-gradient(120deg, rgba(255, 190, 85, 0.28), rgba(255, 160, 40, 0.24));
+  color: #5c3a00;
+}
+html.theme-light button.success {
+  border-color: rgba(88, 224, 142, 0.42);
+  background: linear-gradient(120deg, rgba(36, 167, 93, 0.32), rgba(24, 138, 86, 0.32));
+  color: #0c3a1c;
+}
+html.theme-light button.danger {
+  border-color: rgba(255, 107, 74, 0.4);
+  background: linear-gradient(120deg, rgba(255, 107, 74, 0.24), rgba(181, 67, 50, 0.28));
+  color: #5c1a10;
+}
+html.theme-light button.recording {
+  border-color: rgba(88, 224, 142, 0.5);
+  background: linear-gradient(120deg, rgba(36, 167, 93, 0.4), rgba(24, 198, 86, 0.36));
+  color: #0c3a1c;
+}
+html.theme-light .mini-btn.active {
+  border-color: rgba(255, 190, 85, 0.45);
+  background: linear-gradient(120deg, rgba(255, 190, 85, 0.28), rgba(223, 147, 46, 0.3));
+  color: #5c3a00;
+}
+html.theme-light .switch input:checked + .switch-slider {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.55), rgba(0, 208, 174, 0.5));
+  border-color: rgba(96, 244, 208, 0.5);
+}
+html.theme-light .list li.active {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.14), rgba(154, 103, 0, 0.1));
+}
+html.theme-light .binding-list li.running {
+  background: linear-gradient(110deg, rgba(19, 165, 98, 0.24), rgba(24, 124, 78, 0.2));
+}
+html.theme-light .action-list li.editing {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.18), rgba(255, 190, 85, 0.14));
+}
+html.theme-light .editor-macro-list li.opened,
+html.theme-light .editor-macro-list li.opened:hover {
+  background: linear-gradient(110deg, rgba(35, 168, 102, 0.24), rgba(18, 118, 75, 0.2));
+}
+
+/* M icon 背景加亮 — 亮色下更亮的渐变 */
+html.theme-light .brand-mark {
+  background: linear-gradient(135deg, #2dd4bf, #fbbf24);
+  color: #0c1a22;
 }
 
 .cvt-section > summary::before {

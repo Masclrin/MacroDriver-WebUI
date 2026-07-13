@@ -14,6 +14,16 @@
   --danger: #ff6b4a;
   --line: rgba(178, 209, 236, 0.2);
 }
+:root.theme-light {
+  --bg: #e4e8ec;
+  --bg-soft: #eef2f6;
+  --card: #f4f7fa;
+  --text: #1f2328;
+  --muted: #656d76;
+  --accent: #0eb6a4;
+  --danger: #cf222e;
+  --line: #c8d1da;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; color: var(--text); font-family: "Noto Sans SC","Microsoft YaHei UI","PingFang SC",sans-serif; background: var(--bg); }
 .toolbar {
@@ -51,6 +61,11 @@ html, body { height: 100%; overflow: hidden; color: var(--text); font-family: "N
 </div>
 <script>
 (function() {
+  try {
+    if (new URLSearchParams(window.location.search).get('theme') === 'light') {
+      document.documentElement.classList.add('theme-light');
+    }
+  } catch(e) {}
   var lastId = 0;
   var lineCount = 0;
   var autoScroll = true;
