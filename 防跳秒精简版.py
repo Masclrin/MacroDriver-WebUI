@@ -77,11 +77,11 @@ BLACK_TIMEOUT  = 2.0
 BRIGHT_REGION  = (1118, 1005, 6, 6)
 BRIGHT_THRESH  = 80
 BRIGHT_RATIO   = 0.5
-BRIGHT_TIMEOUT = 8.0
+BRIGHT_TIMEOUT = 5   # 亮屏检测超时时间
 
-WAIT_BEFORE_LOCK = 0.6
-WAIT_AFTER_LOCK  = 1.5
-WAIT_AFTER_BRIGHT = 0.3
+WAIT_BEFORE_LOCK = 0.7   #不同电脑和锁帧调这个
+WAIT_AFTER_LOCK  = 0.5
+WAIT_AFTER_BRIGHT = 0.2
 COOLDOWN_AFTER_CYCLE = 1.0
 
 RTSS_HOTKEY = 'f6'
@@ -511,7 +511,8 @@ def main():
                     break
                 psleep(DETECT_INTERVAL)
             if not bright_ok:
-                print(f"[亮屏检测] ✗ 超时")
+                print(f"[亮屏检测] ✗ 超时, 恢复帧率")
+                send_key(RTSS_HOTKEY)
                 detector.pause_capture()
                 continue
 
