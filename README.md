@@ -20,7 +20,7 @@
 2. 双输入驱动兼容 ：同时支持SendInput（兼容性）和Interception（精准度）两种输入模式
 3. PID Boost + 线程亲和 ：执行宏时可提升进程优先级并绑定CPU核心，确保低延时
 4. 实时控制台输出 ：通过 RingConsole 和 TeeStream 实现控制台内容实时推送到Web UI
-5. 单宏精度优化：WinAPI+忙等 高精度睡眠；Interception 实现内核级输入注入；宏执行延迟补偿
+5. 单宏精度优化：WinAPI+忙等 高精度睡眠；Interception 实现内核级输入注入；宏执行延迟补偿；native standby引擎绕过python
 6. 轨迹化简 ：支持Ramer-Douglas-Peucker算法对录制轨迹进行压缩
 7. 配置中心化 ：通过 webui_param_config.json 统一管理所有运行时参数
 8. 可视化节点编辑器 ：拖拽式自动化流程搭建，支持 Fork/Join/Race 并发控制
@@ -33,7 +33,7 @@
 - **宏录制系统** - 3D轨迹录制，支持按键+移动同步
 - **轨迹化简** - Ramer-Douglas-Peucker 算法压缩冗余轨迹点
 - **双输入模式** - SendInput（兼容）与 Interception（精准）双驱动支持
-- **精度优化** - PID Boost、CPU核心绑定、低延时执行
+- **精度优化** - PID Boost、CPU核心绑定、native standby自旋、低延时执行
 - **实时控制台** - 控制台输出实时推送至 WebUI
 - **热键控制** - 多热键支持宏运行/暂停/停止
 - **参数配置** - 统一的 JSON 配置文件管理运行时参数
@@ -191,7 +191,7 @@ macro-driver-webui/
 **应排除：**
 - `存档内容/` - 开发存档，非运行必需
 - `问题/` - Bug 审查记录，非运行必需
-- `图片模板/` - 开发参考图片
+- `图片模板/` - 自动化设计，图片，数字匹配模板
 - `__pycache__/` - Python 缓存
 - `.vscode/` - IDE 配置
 - `webui_param_config.json` - 用户本地配置（运行时自动生成）
@@ -239,6 +239,7 @@ pyinstaller --onefile --windowed --name MacroDriver webui_app.py
 | --- | --- |
 | [@Masclrin](https://github.com/Masclrin) | 项目创建者 & 核心开发者 |
 | [@moudai202](https://github.com/moudai202) | 核心贡献者 |
+| [@alice9716](https://github.com/alice9716) | 核心贡献者 |
 
 ---
 
