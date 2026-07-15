@@ -126,6 +126,20 @@ STANDBY_FALLBACK_ON_FAIL = True      # C 扩展加载/初始化/执行失败时�
 STANDBY_AUTO_PICK_CORE = True        # 自动检测最优 P-core (避开核0/E-core)
 STANDBY_FIXED_CORE = -1              # 手动指定核心索引, -1 表示自动选择
 STANDBY_MAX_EVENTS = 200000          # 时间线最大事件数 (与 MAX_COMPILED_ACTIONS 对齐)
+# —— Standby PrecisionScope (长宏长尾优化, MacroHID 参考实测) ——
+# 启用后在 C 侧 standby_thread 执行段应用 PrecisionScope, 降低 OS 调度抢占导致的长尾。
+# 实测: A 基线在长间隔(300ms+)下有偶发严重长尾(2.3ms), PrecisionScope 全套优化 -99%。
+# 拆分为 4 个分组开关, 用户可按需组合 (任意一个开启即启用 PrecisionScope 框架):
+#   - PRIORITY 组: REALTIME_PRIORITY_CLASS + 进程/线程 priority boost 禁用 (防 OS 抢占)
+#   - TIMER 组: NtSetTimerResolution(0.5ms) + timeBeginPeriod(1) (提升唤醒精度)
+#   - MMCSS 组: AvSetMmThreadCharacteristics("Pro Audio") (绕过普通调度, 需配合 PRIORITY)
+#   - POWER 组: SetProcessInformation(PowerThrottling) 禁用 (防 Win11 节流)
+# 注意: MMCSS 单独使用(无 PRIORITY)在长间隔下可能引入不稳定, 建议与 PRIORITY 同开关。
+# 线程级设置不跨线程传递, C 侧 standby_thread 需独立设置, 与 Python 侧开关不冲突。
+STANDBY_PS_PRIORITY = True           # PRIORITY 组: REALTIME + boost 禁用
+STANDBY_PS_TIMER = True              # TIMER 组: NtSetTimer + timeBeginPeriod
+STANDBY_PS_MMCSS = True              # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
+STANDBY_PS_POWER = True              # POWER 组: power throttling 禁用
 
 # —— RTSS 帧同步（混合精度宏）——
 # 单宏中可混用 ms 延迟与帧延迟：ms 延迟照常精确计时，帧延迟等待 RTSS 帧信号后继续
@@ -2185,8 +2199,18 @@ def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
         # 最后一段 _keep_pressed=False, 由 C 层 release_all_pressed 统一补发抬起
         use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
         keep_pressed = 1 if _opt.get("_keep_pressed", False) else 0
-        se.start(core, use_ic, keep_pressed)
-        print(f"[standby] 启动: CPU{core}, events={len(events)}, interception={use_ic}, keep_pressed={keep_pressed}, macro={macro_name}")
+        # config: 0=CONFIG_A(基线), 1=CONFIG_B(PrecisionScope)
+        # mask: 4 组分组开关合成 (任一开启即用 CONFIG_B)
+        ps_mask = 0
+        if STANDBY_PS_PRIORITY: ps_mask |= se.PS_REALTIME | se.PS_PROC_BOOST_OFF | se.PS_THREAD_BOOST_OFF
+        if STANDBY_PS_TIMER:    ps_mask |= se.PS_NT_TIMER | se.PS_TIME_PERIOD
+        if STANDBY_PS_MMCSS:    ps_mask |= se.PS_MMCSS
+        if STANDBY_PS_POWER:    ps_mask |= se.PS_POWER_THROTTLE
+        standby_config = 1 if ps_mask else 0
+        if standby_config and hasattr(se, "set_precision_mask"):
+            se.set_precision_mask(ps_mask)
+        se.start(core, use_ic, keep_pressed, standby_config)
+        print(f"[standby] 启动: CPU{core}, events={len(events)}, interception={use_ic}, keep_pressed={keep_pressed}, precision_scope={'on(mask=0x%02x)' % ps_mask if standby_config else 'off'}, macro={macro_name}")
 
         # 5. 等待完成或停止 (轮询 stop_event, 每 2ms 检查)
         while not stop_event.is_set():
@@ -2352,8 +2376,17 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
 
         # 5. 启动 standby 线程 (keep_pressed=0: 整体跑完由 C 层 release_all_pressed)
         use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
-        se.start(core, use_ic, 0)
-        print(f"[standby+RTSS] 启动: CPU{core}, events={len(events)}, interception={use_ic}, macro={macro_name}")
+        # config: 0=CONFIG_A(基线), 1=CONFIG_B(PrecisionScope)
+        ps_mask = 0
+        if STANDBY_PS_PRIORITY: ps_mask |= se.PS_REALTIME | se.PS_PROC_BOOST_OFF | se.PS_THREAD_BOOST_OFF
+        if STANDBY_PS_TIMER:    ps_mask |= se.PS_NT_TIMER | se.PS_TIME_PERIOD
+        if STANDBY_PS_MMCSS:    ps_mask |= se.PS_MMCSS
+        if STANDBY_PS_POWER:    ps_mask |= se.PS_POWER_THROTTLE
+        standby_config = 1 if ps_mask else 0
+        if standby_config and hasattr(se, "set_precision_mask"):
+            se.set_precision_mask(ps_mask)
+        se.start(core, use_ic, 0, standby_config)
+        print(f"[standby+RTSS] 启动: CPU{core}, events={len(events)}, interception={use_ic}, precision_scope={'on(mask=0x%02x)' % ps_mask if standby_config else 'off'}, macro={macro_name}")
 
         # 6. 等待完成或停止
         while not stop_event.is_set():

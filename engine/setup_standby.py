@@ -14,7 +14,7 @@ from setuptools import setup, Extension
 module = Extension(
     '_standby_engine',
     sources=['engine/standby_engine.c'],
-    libraries=['user32'],           # SendInput / SetCursorPos / MapVirtualKeyA
+    libraries=['user32', 'avrt', 'winmm'],  # SendInput / AvSetMmThread / timeBeginPeriod
     # interception.dll 运行时 LoadLibrary, 不需要链接
     extra_compile_args=[
         '/O2',          # 最大优化

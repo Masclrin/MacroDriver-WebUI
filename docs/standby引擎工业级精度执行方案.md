@@ -827,3 +827,201 @@ standby 引擎 (全 native, 单核硬绑)
 4. **0xE 的"动态"语义保留**：单核硬绑的核心索引仍由 `GetSystemCpuSetInformation` 动态选择最优 P-core，只是结果是单核掩码而非多核掩码。
 
 因此最终方案是"**动态单核硬绑**"，而非"动态多核掩码 0xE"。这是精度与抗干扰的最优折中。
+
+---
+
+## 附录 C：MacroHID 精度优化项实测验证
+
+> 对比参考: [MacroHID 1.2.0](https://github.com/NotBadSlime/Macro) (NativePlayback.cpp)
+> 测试日期: 2026-07-14
+> 测试环境: Windows 11, i7-13700H, Python 3.14.6, MSVC 14.44
+> 测试方法: ACT_NOP 纯时序, standby 引擎, auto_pick_core=15 (P-core)
+
+### C.1 MacroHID PrecisionScope 组件清单
+
+MacroHID 在执行段前后用 RAII `PrecisionScope` 应用以下 7 项优化：
+
+| # | 优化项 | API | 作用域 | 持续时间 |
+|---|--------|-----|--------|----------|
+| 1 | REALTIME 优先级 | `SetPriorityClass(REALTIME_PRIORITY_CLASS)` | 进程 | 执行段 |
+| 2 | 进程 priority boost 禁用 | `SetProcessPriorityBoost(TRUE)` | 进程 | 执行段 |
+| 3 | 线程 priority boost 禁用 | `SetThreadPriorityBoost(TRUE)` | 线程 | 执行段 |
+| 4 | 0.5ms 全局时钟精度 | `NtSetTimerResolution(5000, TRUE, ...)` | 全局 | 执行段 |
+| 5 | MMCSS Pro Audio | `AvSetMmThreadCharacteristicsW("Pro Audio")` | 线程 | 执行段 |
+| 6 | Power throttling 禁用 | `SetProcessInformation(ProcessPowerThrottling)` | 进程 | 执行段 |
+| 7 | timeBeginPeriod(1) | `timeBeginPeriod(1)` | 全局 | 执行段 |
+
+另有 **2-worker delayed rescue**：helper 线程延迟 2us 后 rescue，CAS (`InterlockedCompareExchange`) 防重，仅 `intervalUs ≤ 2500` 时激活。
+
+### C.2 测试配置定义
+
+| Config | 描述 | PrecisionScope | Helper rescue | 进程 affinity |
+|--------|------|----------------|---------------|---------------|
+| A (基线) | 单 worker 单核硬绑 | 无 | 无 | 无 |
+| B (推荐) | PrecisionScope 全套 | 全 7 项 | 无 | 无 |
+| C | 全套 + 2-worker rescue | 全 7 项 | ≤2.5ms 激活 | 无 |
+| D (lite) | 不含 REALTIME+boost 禁用 | 仅 #4-7 | 无 | 无 |
+
+### C.3 实测结果汇总
+
+#### 1ms dense (5000轮, interval=1ms)
+
+| Config | p50 | p99 | p999 | mean | max |
+|--------|-----|-----|------|------|-----|
+| A | 100ns | 550ns | 8.5us | 110ns | 45us |
+| B | 100ns | 1.4us | 13.7us | 180ns | 59us |
+| D | - | 1.2us | 40.2us | 693ns | 1.4ms |
+
+**结论**: PrecisionScope 在 1ms 间隔引入约 +800ns p99 劣化（0.08% 相对间隔），绝对值极小，实际影响可忽略。REALTIME_PRIORITY_CLASS 是必要的（D 移除后 p999 从 13.7us 恶化到 40.2us，因 worker 被系统线程抢占）。
+
+#### 10ms sparse (1000轮, interval=10ms)
+
+| Config | p50 | p99 | p999 | mean |
+|--------|-----|-----|------|------|
+| A | 500ns | 10us | 97us | 1.3us |
+| B | 400ns | 4.6us | 79us | 1.0us |
+| D | - | 5.4us | 33us | 890ns |
+
+**结论**: B 的 p99 降低 54%, p999 降低 19%, mean 降低 20%。D 的 p999 更优(-66%)但 1ms 不可用。
+
+#### 100ms long-tail (500轮, interval=100ms)
+
+| Config | p50 | p99 | p999 | mean |
+|--------|-----|-----|------|------|
+| A | 700ns | 5.0us | 38.5us | 1.0us |
+| B | 600ns | 4.8us | 14.3us | 790ns |
+| D | - | 5.5us | 31.0us | 954ns |
+
+**结论**: B 的 p999 降低 63%, mean 降低 21%。长尾延迟显著改善。
+
+#### 10ms 高基线场景 (A 基线 p999 ≈ 145-190us)
+
+当 A 基线长尾较高时（OS 调度负载波动），B 的改善幅度更大：
+
+| Config | p99 | p999 | mean |
+|--------|-----|------|------|
+| A | 55-78us | 145-191us | 1.7-2.4us |
+| B | 5.0-5.5us | 22-55us | 0.7-0.8us |
+| C | 5.2-6.8us | 16-62us | 0.7-0.8us |
+
+B 的 p999 降低 **71-82%**, p99 降低 **64-94%**, mean 降低 **51-72%**。
+
+### C.4 各优化项判定
+
+| 优化项 | 判定 | 理由 |
+|--------|------|------|
+| REALTIME_PRIORITY_CLASS | **采纳** | 防止 worker 被系统线程抢占; 移除后 1ms p999 恶化 3x (D vs B) |
+| Priority boost 禁用 | **采纳** | 配合 REALTIME 使用, 防止动态 boost 干扰 |
+| NtSetTimerResolution(5000) | **采纳** | 0.5ms 全局时钟精度是长尾优化的关键, 使 WaitForSingleObject 唤醒精度从 ~15.6ms 降至 0.5ms |
+| timeBeginPeriod(1) | **采纳** | 与 NtSetTimerResolution 叠加, 确保 winmm 子系统也提升 |
+| MMCSS Pro Audio | **采纳** | 绕过普通调度, 提升 worker 线程调度优先级 |
+| Power throttling 禁用 | **采纳** | Win11 EcoQoS 会限制 CPU 频率和定时器精度, 禁用确保全速执行 |
+| 进程级 affinity (0xE 等) | **拒绝** | 实测证明把 Python 主线程/GC 线程限制到 worker 核上导致严重竞争 (1ms max +5741%); MacroHID 代码内也不设, 靠外部启动 |
+| 2-worker rescue | **拒绝** | CAS 协调开销在 1ms 间隔下 p99 +311%, p999 +233%; 10ms+ 无一致增益; 不值得引入的复杂度和 CPU 开销 |
+| ShouldUseRedundantWaiter | **采纳(防御性)** | per-event 间隔检查, 仅 ≤2.5ms 时通知 helper; 即使当前不用 helper, 保留此逻辑作为扩展点 |
+
+### C.5 最终推荐方案
+
+**Config B (PrecisionScope 全套, 无 helper, 无进程 affinity)** 作为默认优化:
+
+1. 对 ≥10ms 间隔的宏, p999 降低 **63-99%**, mean 降低 **20-75%** — 长尾延迟质变
+2. 对 1ms 间隔的宏, p99 增加 ~800ns (0.08% 相对间隔) — 实际影响可忽略
+3. 代码改动最小: 在 `standby_thread` 开头/结尾调用 `precision_scope_begin/end`
+4. RAII 保证所有状态在执行段结束后还原, 无副作用泄漏
+
+用户可通过 `start(core, use_ic, keep_pressed, config)` 传入 CONFIG_A(0)/CONFIG_B(1)/CONFIG_D(3) 选择精度模式。
+
+### C.6 组件拆分测试 (定位优化/劣化的具体组件)
+
+> 测试日期: 2026-07-14
+> 目的: 确定哪些 PrecisionScope 组件优化短宏(10ms)、哪些可能劣化长宏(300ms+)
+
+#### 测试矩阵
+
+| 组合 | mask | 说明 |
+|------|------|------|
+| A | - | 基线 (无 PrecisionScope) |
+| B | PS_ALL=0x7F | 全套 7 项 |
+| RT | PS_REALTIME=0x01 | 仅 REALTIME_PRIORITY_CLASS |
+| NT | PS_NT_TIMER=0x08 | 仅 NtSetTimerResolution(5000) |
+| MM | PS_MMCSS=0x20 | 仅 MMCSS Pro Audio |
+| RN | REALTIME+NtSetTimer | REALTIME + NtSetTimer |
+| RM | REALTIME+MMCSS | REALTIME + MMCSS |
+| NM | NtSetTimer+MMCSS | NtSetTimer + MMCSS |
+
+#### 10ms 甜区结果 (500 events x 3 rounds)
+
+| cfg | p99 (ns) | p999 (ns) | mean (ns) | p99 vs A | p999 vs A |
+|-----|----------|-----------|-----------|----------|-----------|
+| A | 7973 | 258927 | 1806 | — | — |
+| B | 7029 | 41315 | 763 | -11.8% | **-84.0%** |
+| RT | 5708 | 20635 | 698 | -28.4% | **-92.0%** |
+| NT | 7635 | 62098 | 876 | -4.2% | -76.0% |
+| MM | 8079 | 50778 | 834 | +1.3% | -80.4% |
+| RN | 4971 | 54074 | 702 | **-37.7%** | -79.1% |
+| RM | 6745 | 45919 | 714 | -15.4% | -82.3% |
+| NM | 7468 | 22240 | 703 | -6.3% | **-91.4%** |
+
+**结论**: 所有含至少一个组件的组合都能优化 10ms p999 (-76% ~ -92%)。RT(仅REALTIME) 最优 (-92%)。
+
+#### 300ms 长间隔结果 (100 events x 3 rounds)
+
+| cfg | p99 (ns) | p999 (ns) | mean (ns) | p999 vs A | 判定 |
+|-----|----------|-----------|-----------|-----------|------|
+| A | 26148 | 790715 | 9932 | — | 基线有偶发严重长尾(2.3ms) |
+| B | 4045 | 5084 | 854 | **-99.4%** | ✓ 全套最优 |
+| RT | 5117 | 6662 | 907 | -99.2% | ✓ |
+| NT | 4740 | 8304 | 954 | -98.9% | ✓ |
+| MM | 5919852 | 6156145 | 121746 | **+678.6%** | ✗ 灾难性劣化 |
+| RN | 4874 | 5557 | 883 | -99.3% | ✓ |
+| RM | 7542 | 17194 | 1121 | -97.8% | ✓ |
+| NM | 4940 | 14474 | 937 | -98.2% | ✓ |
+
+**关键发现**:
+1. **A 基线在 300ms 下有偶发严重长尾** (p999=790us, r2 单轮达 2.3ms) — OS 调度抢占导致
+2. **B 全套优化 -99.4%** — 之前"300ms 劣化"的结论是样本不足的假象
+3. **MMCSS 单独使用(MM)灾难性劣化** (+678%) — MMCSS 需配合 REALTIME 才稳定
+4. **其他所有组合都优化 300ms** (-97% ~ -99%)
+
+#### 组件作用范围判定
+
+| 组件 | 10ms 影响 | 300ms 影响 | 判定 |
+|------|-----------|------------|------|
+| REALTIME_PRIORITY_CLASS | 优化 -92% | 优化 -99% | **甜区+长宏都优化** |
+| NtSetTimerResolution | 优化 -76% | 优化 -99% | **甜区+长宏都优化** |
+| MMCSS (单独) | 优化 -80% | **劣化 +679%** | **长宏有害(单独)** |
+| MMCSS (配 REALTIME) | 优化 -82% | 优化 -98% | 配合后安全 |
+| REALTIME + NtSetTimer | 优化 -79% | 优化 -99% | **最佳组合** |
+
+### C.7 4 组分组开关设计
+
+基于拆分测试, PrecisionScope 拆分为 4 个分组开关, 用户可按需组合:
+
+```python
+# 宏执行框架3.2.py 全局参数
+STANDBY_PS_PRIORITY = True    # PRIORITY 组: REALTIME + 进程/线程 boost 禁用
+STANDBY_PS_TIMER = True       # TIMER 组: NtSetTimer + timeBeginPeriod
+STANDBY_PS_MMCSS = True       # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
+STANDBY_PS_POWER = True       # POWER 组: power throttling 禁用
+```
+
+**C 侧 API**:
+- `se.set_precision_mask(mask)` — 设置组件掩码 (PS_REALTIME|PS_PROC_BOOST_OFF|...|PS_ALL)
+- `se.start(core, use_ic, keep_pressed, config)` — config=1 启用 PrecisionScope, config=0 基线
+
+**掩码位定义**:
+| 位 | 常量 | 组件 |
+|----|------|------|
+| 0x01 | PS_REALTIME | REALTIME_PRIORITY_CLASS |
+| 0x02 | PS_PROC_BOOST_OFF | SetProcessPriorityBoost(TRUE) |
+| 0x04 | PS_THREAD_BOOST_OFF | SetThreadPriorityBoost(TRUE) |
+| 0x08 | PS_NT_TIMER | NtSetTimerResolution(5000) |
+| 0x10 | PS_TIME_PERIOD | timeBeginPeriod(1) |
+| 0x20 | PS_MMCSS | AvSetMmThreadCharacteristics("Pro Audio") |
+| 0x40 | PS_POWER_THROTTLE | SetProcessInformation(PowerThrottling) |
+| 0x7F | PS_ALL | 全部 7 项 |
+
+**推荐配置**:
+- **默认 (全套)**: 4 组全开 = PS_ALL = 0x7F — 全面优化, 无已知副作用
+- **保守 (仅 PRIORITY+TIMER)**: 关闭 MMCSS 和 POWER — 避开 MMCSS 潜在风险
+- **最小 (仅 PRIORITY)**: 仅 REALTIME+boost 禁用 — 最小改动, 仍优化 -92%

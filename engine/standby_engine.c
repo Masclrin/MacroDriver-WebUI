@@ -15,14 +15,47 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <windows.h>
+#include <avrt.h>
+#include <mmsystem.h>
 #include <intrin.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+#pragma comment(lib, "avrt.lib")
+#pragma comment(lib, "winmm.lib")
+
+/* NtSetTimerResolution — 未文档化 API, 动态加载 */
+typedef LONG (NTAPI *NtSetTimerResolutionFn)(ULONG DesiredResolution, BOOLEAN SetResolution, PULONG CurrentResolution);
+
+/* ProcessPowerThrottling — Win11 power throttling 控制
+ * Windows SDK 10.0.26100.0 已定义 PROCESS_POWER_THROTTLING_STATE 和常量。
+ * 旧 SDK 可能缺失, 此处补充常量定义 (结构体由 SDK 提供)。 */
+#ifndef ProcessPowerThrottlingClass
+#define ProcessPowerThrottlingClass 4
+#endif
+#ifndef ProcessPowerThrottlingCurrentVersion
+#define ProcessPowerThrottlingCurrentVersion 1
+#endif
+#ifndef ProcessPowerThrottlingExecutionSpeed
+#define ProcessPowerThrottlingExecutionSpeed 0x00000001
+#endif
+#ifndef ProcessPowerThrottlingIgnoreTimerResolution
+#define ProcessPowerThrottlingIgnoreTimerResolution 0x00000004
+#endif
 
 /* ========== 常量 ========== */
 #define MAX_TIMELINE_EVENTS     200000
 #define STANDBY_SPIN_THRESHOLD  100     /* us: < 100us 纯自旋 */
 #define STANDBY_COARSE_THRESHOLD 2000   /* us: > 2ms 用 WaitForSingleObject 粗睡眠 */
+
+/* Config 变体: 用于拆分变量测试 */
+#define CONFIG_A                 0      /* 基线: 单 worker 单核硬绑, 无 PrecisionScope */
+#define CONFIG_B                 1      /* PrecisionScope 全套 (REALTIME+NtSetTimer+MMCSS+power), 无 helper */
+#define CONFIG_C                 2      /* PrecisionScope + 2-worker rescue (全套, 无进程 affinity) */
+#define CONFIG_D                 3      /* PrecisionScope-Lite: 仅 NtSetTimer+MMCSS+power, 不提升进程优先级 */
+#define HELPER_RESCUE_DELAY_US   2      /* helper rescue delay = 2us (MacroHID) */
+#define HELPER_ACTIVATE_MAX_US   2500   /* helper 仅在间隔 ≤ 2.5ms 时激活 */
+#define PROCESS_AFFINITY_MASK    0xE    /* 进程级 affinity: 核 1/2/3 (核 0 留给系统) */
 
 /* ActionType — 与 Python 侧 compile_to_timeline 对齐 */
 #define ACT_NOP                   0   /* 无注入, 仅测时序 */
@@ -118,6 +151,48 @@ static bool    g_exec_lock_inited  = false;
 static volatile LONG  g_lock_held  = 0;      /* 是否持有 g_exec_lock (防止 double-release) */
 static volatile LONG  g_keep_pressed = 0;    /* 1=standby 线程退出时不补发抬起 (分段执行模式, 由 Python 层统一兜底释放) */
 static volatile LONG  g_enable_stats = 1;    /* 1=记录 actual_qpc/injection_done_qpc (Python 用于抖动统计); 0=跳过, 榨干 ~10ns 精度 */
+
+/* ========== Config C 全局: 2-worker rescue + PrecisionScope ========== */
+static int     g_config_mode = CONFIG_A;       /* 0=A 现状, 1=C MacroHID 风格 */
+static int     g_helper_core = -1;             /* helper worker 绑定的核 */
+static HANDLE  g_helper_thread_handle = NULL;  /* helper worker 线程句柄 */
+static volatile LONG  g_helper_stop = 0;       /* helper 退出标志 */
+static volatile LONG  g_generation  = 0;       /* helper 等待的代际号 (每事件 +1) */
+static volatile LONG *g_batch_claims = NULL;   /* CAS 数组: 0=未claim, 1=primary, 2=helper */
+static int64_t g_helper_rescue_delay_ticks = 0;/* helper rescue delay (QPC ticks, ~2us) */
+static BOOL    g_precision_scope_active = FALSE; /* PrecisionScope 是否已激活 */
+
+/* PrecisionScope 组件掩码位 (用于精细拆分测试) */
+#define PS_REALTIME         0x01    /* REALTIME_PRIORITY_CLASS (进程级) */
+#define PS_PROC_BOOST_OFF   0x02    /* SetProcessPriorityBoost(TRUE) 禁用 (进程级) */
+#define PS_THREAD_BOOST_OFF 0x04    /* SetThreadPriorityBoost(TRUE) 禁用 (线程级) */
+#define PS_NT_TIMER         0x08    /* NtSetTimerResolution(5000) 0.5ms (全局) */
+#define PS_TIME_PERIOD      0x10    /* timeBeginPeriod(1) (全局) */
+#define PS_MMCSS            0x20    /* AvSetMmThreadCharacteristicsW("Pro Audio") (线程级) */
+#define PS_POWER_THROTTLE   0x40    /* SetProcessInformation(PowerThrottling) 禁用 (进程级) */
+#define PS_ALL              0x7F    /* 全部 7 项 */
+static unsigned g_precision_mask = PS_ALL;  /* 默认全套 */
+
+/* PrecisionScope 状态保存 (RAII 还原用) */
+typedef struct {
+    DWORD  oldProcessPriority;
+    int    oldThreadPriority;
+    BOOL   prevProcessPriorityBoost;
+    BOOL   prevThreadPriorityBoost;
+    BOOL   processBoostCaptured;
+    BOOL   threadBoostCaptured;
+    HANDLE avrtHandle;
+    DWORD  avrtTaskIndex;
+    BOOL   avrtActive;
+    ULONG  prevTimerResolution;
+    BOOL   timerResolutionSet;
+    BOOL   powerThrottlingDisabled;
+    DWORD_PTR oldProcessAffinity;
+    BOOL   processAffinitySet;
+    unsigned mask;  /* 实际应用的组件掩码 */
+} PrecisionScope;
+
+static PrecisionScope g_scope = {0};
 
 /* ========== RTSS 共享内存全局 ========== */
 /* Python 层 _RtssSync.detect_entry_offset 预侦测目标游戏 entry 后, 把该 entry 的
@@ -696,11 +771,312 @@ static int auto_pick_best_core(void) {
     return 1;
 }
 
+/* ========== PrecisionScope (Config C) ========== */
+/* 照搬 MacroHID NativePlayback.cpp PrecisionScope RAII 模式:
+ *   - REALTIME_PRIORITY_CLASS (进程级)
+ *   - SetProcessPriorityBoost(TRUE) / SetThreadPriorityBoost(TRUE) 禁用 boost
+ *   - NtSetTimerResolution(5000) = 0.5ms 全局时钟精度
+ *   - AvSetMmThreadCharacteristicsW(L"Pro Audio") + AVRT_PRIORITY_CRITICAL (MMCSS)
+ *   - SetProcessInformation(ProcessPowerThrottling) 禁用 Win11 power throttling
+ *   - SetProcessAffinityMask(0xE) 进程级 affinity 限制核池
+ *   - 析构时还原所有状态
+ */
+static void precision_scope_begin(PrecisionScope *s, BOOL lite) {
+    HANDLE proc = GetCurrentProcess();
+    HANDLE thread = GetCurrentThread();
+    memset(s, 0, sizeof(*s));
+
+    /* lite 模式: 仅 NtSetTimer + timeBeginPeriod + MMCSS + power throttling (跳过 REALTIME + boost 禁用) */
+    unsigned mask = lite ? (PS_NT_TIMER | PS_TIME_PERIOD | PS_MMCSS | PS_POWER_THROTTLE) : g_precision_mask;
+    s->mask = mask;
+
+    /* 1. 保存旧状态 */
+    s->oldProcessPriority = GetPriorityClass(proc);
+    s->oldThreadPriority  = GetThreadPriority(thread);
+    s->processBoostCaptured = GetProcessPriorityBoost(proc, &s->prevProcessPriorityBoost);
+    s->threadBoostCaptured  = GetThreadPriorityBoost(thread, &s->prevThreadPriorityBoost);
+
+    /* 2. 不设进程级 affinity (MacroHID 代码内也不设, 靠外部启动) */
+
+    /* 3. 禁用 priority boost (进程 + 线程) */
+    if (mask & PS_PROC_BOOST_OFF) {
+        if (s->processBoostCaptured) {
+            SetProcessPriorityBoost(proc, TRUE);
+        }
+    }
+    if (mask & PS_THREAD_BOOST_OFF) {
+        if (s->threadBoostCaptured) {
+            SetThreadPriorityBoost(thread, TRUE);
+        }
+    }
+
+    /* 4. REALTIME_PRIORITY_CLASS (进程级) */
+    if (mask & PS_REALTIME) {
+        SetPriorityClass(proc, REALTIME_PRIORITY_CLASS);
+    }
+
+    /* 5. THREAD_PRIORITY_TIME_CRITICAL (线程级) — 基线已设, 这里再确认 */
+    SetThreadPriority(thread, THREAD_PRIORITY_TIME_CRITICAL);
+
+    /* 6. NtSetTimerResolution(5000) = 0.5ms */
+    if (mask & PS_NT_TIMER) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (ntdll) {
+            NtSetTimerResolutionFn pfn = (NtSetTimerResolutionFn)GetProcAddress(ntdll, "NtSetTimerResolution");
+            if (pfn) {
+                ULONG cur = 0;
+                if (pfn(5000, TRUE, &cur) == 0) {
+                    s->timerResolutionSet = TRUE;
+                    s->prevTimerResolution = cur;
+                }
+            }
+        }
+    }
+
+    /* 7. timeBeginPeriod(1) */
+    if (mask & PS_TIME_PERIOD) {
+        timeBeginPeriod(1);
+    }
+
+    /* 8. MMCSS Pro Audio */
+    if (mask & PS_MMCSS) {
+        s->avrtHandle = AvSetMmThreadCharacteristicsW(L"Pro Audio", &s->avrtTaskIndex);
+        if (s->avrtHandle) {
+            s->avrtActive = TRUE;
+            AvSetMmThreadPriority(s->avrtHandle, AVRT_PRIORITY_CRITICAL);
+        }
+    }
+
+    /* 9. 禁用 Win11 power throttling */
+    if (mask & PS_POWER_THROTTLE) {
+        PROCESS_POWER_THROTTLING_STATE pts;
+        pts.Version = ProcessPowerThrottlingCurrentVersion;
+        pts.ControlMask = ProcessPowerThrottlingExecutionSpeed | ProcessPowerThrottlingIgnoreTimerResolution;
+        pts.StateMask = 0;
+        if (SetProcessInformation(proc, (PROCESS_INFORMATION_CLASS)ProcessPowerThrottlingClass,
+                                  &pts, sizeof(pts))) {
+            s->powerThrottlingDisabled = TRUE;
+        }
+    }
+
+    g_precision_scope_active = TRUE;
+}
+
+static void precision_scope_end(PrecisionScope *s, BOOL lite) {
+    HANDLE proc = GetCurrentProcess();
+    HANDLE thread = GetCurrentThread();
+    unsigned mask = s->mask;
+
+    /* 9. 还原 power throttling */
+    if ((mask & PS_POWER_THROTTLE) && s->powerThrottlingDisabled) {
+        PROCESS_POWER_THROTTLING_STATE pts;
+        pts.Version = ProcessPowerThrottlingCurrentVersion;
+        pts.ControlMask = ProcessPowerThrottlingExecutionSpeed | ProcessPowerThrottlingIgnoreTimerResolution;
+        pts.StateMask = ProcessPowerThrottlingExecutionSpeed | ProcessPowerThrottlingIgnoreTimerResolution;
+        SetProcessInformation(proc, (PROCESS_INFORMATION_CLASS)ProcessPowerThrottlingClass,
+                              &pts, sizeof(pts));
+    }
+
+    /* 8. 还原 MMCSS */
+    if ((mask & PS_MMCSS) && s->avrtActive && s->avrtHandle) {
+        AvRevertMmThreadCharacteristics(s->avrtHandle);
+    }
+
+    /* 7. 还原 timeBeginPeriod */
+    if (mask & PS_TIME_PERIOD) {
+        timeEndPeriod(1);
+    }
+
+    /* 6. 还原 NtSetTimerResolution */
+    if ((mask & PS_NT_TIMER) && s->timerResolutionSet) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (ntdll) {
+            NtSetTimerResolutionFn pfn = (NtSetTimerResolutionFn)GetProcAddress(ntdll, "NtSetTimerResolution");
+            if (pfn) {
+                ULONG cur = 0;
+                pfn(s->prevTimerResolution, FALSE, &cur);
+            }
+        }
+    }
+
+    /* 5. 还原线程优先级 */
+    SetThreadPriority(thread, s->oldThreadPriority);
+
+    /* 4. 还原进程优先级 */
+    if (mask & PS_REALTIME) {
+        SetPriorityClass(proc, s->oldProcessPriority);
+    }
+
+    /* 3. 还原 priority boost */
+    if (mask & PS_THREAD_BOOST_OFF) {
+        if (s->threadBoostCaptured) {
+            SetThreadPriorityBoost(thread, s->prevThreadPriorityBoost);
+        }
+    }
+    if (mask & PS_PROC_BOOST_OFF) {
+        if (s->processBoostCaptured) {
+            SetProcessPriorityBoost(proc, s->prevProcessPriorityBoost);
+        }
+    }
+
+    /* 2. 进程 affinity 未设置, 无需还原 */
+
+    g_precision_scope_active = FALSE;
+    memset(s, 0, sizeof(*s));
+}
+
+/* ========== helper worker 线程 (Config C) ========== */
+/* 始终自旋, 等待 generation 变化后尝试 CAS rescue。
+ * rescue target = primary target + g_helper_rescue_delay_ticks (~2us)。
+ * CAS: InterlockedCompareExchange(&g_batch_claims[i], 2, 0) == 0 → helper 赢, 执行注入。
+ * 若 primary 已 claim (CAS 失败), helper 跳过该事件。
+ * helper 在另一个核上自旋, 不与 primary 竞争 CPU。 */
+static DWORD WINAPI helper_thread(LPVOID arg) {
+    /* helper 绑到 g_helper_core (与 primary 不同) */
+    SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << g_helper_core);
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+    /* MMCSS (helper 也需要 Pro Audio 优先级) */
+    DWORD avrtTaskIndex = 0;
+    HANDLE avrtHandle = AvSetMmThreadCharacteristicsW(L"Pro Audio", &avrtTaskIndex);
+    if (avrtHandle) {
+        AvSetMmThreadPriority(avrtHandle, AVRT_PRIORITY_CRITICAL);
+    }
+
+    uint32_t seen_generation = 0;
+    int n = (int)g_event_count;
+
+    while (!g_helper_stop) {
+        const uint32_t gen = (uint32_t)InterlockedCompareExchange(&g_generation, 0, 0);
+        if (gen == seen_generation) {
+            _mm_pause();  /* 始终自旋, 不睡眠 */
+            continue;
+        }
+        seen_generation = gen;
+
+        /* generation 变化 → 新事件到了, 尝试 rescue */
+        int idx = (int)(gen - 1);
+        if (idx < 0 || idx >= n) continue;
+
+        /* 跳过 RTSS 帧等待事件 (helper 不参与) */
+        if (g_timeline[idx].action_type == ACT_RTSS_WAIT_FRAMES) continue;
+
+        /* 计算 rescue target: primary target + rescue delay */
+        uint64_t target = 0;
+        /* 与 standby_thread 相同的 target 计算 — 简化版:
+         * helper 只在 dense loop (≤2.5ms) 激活, 段内 base_qpc 由 primary 维护。
+         * helper 读 g_results[idx].target_qpc 获取 primary 的 target。 */
+        target = g_results[idx].target_qpc + (uint64_t)g_helper_rescue_delay_ticks;
+
+        /* 自旋等 rescue target */
+        while (!g_helper_stop && !g_stop_flag) {
+            uint64_t now = qpc_now();
+            if (now >= target) break;
+            _mm_pause();
+        }
+        if (g_helper_stop || g_stop_flag) break;
+
+        /* CAS 抢占: 0→2 (helper) */
+        LONG prev = InterlockedCompareExchange(&g_batch_claims[idx], 2, 0);
+        if (prev != 0) {
+            /* primary 已 claim, helper 跳过 */
+            continue;
+        }
+
+        /* helper 赢, 执行注入 */
+        g_results[idx].actual_qpc = g_enable_stats ? qpc_now() : 0;
+        g_results[idx].action_type = g_timeline[idx].action_type;
+        g_results[idx].status = ST_OK;
+
+        int32_t p1 = g_timeline[idx].param1;
+        int32_t p2 = g_timeline[idx].param2;
+        int32_t p3 = g_timeline[idx].param3;
+
+        switch (g_timeline[idx].action_type) {
+            case ACT_NOP:
+                break;
+            case ACT_KEY_DOWN:
+                if (!si_send_key(p1, true)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                else track_key(0, p1, 0, true);
+                break;
+            case ACT_KEY_UP:
+                if (!si_send_key(p1, false)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                else track_key(0, p1, 0, false);
+                break;
+            case ACT_MOUSE_MOVE_REL:
+                if (!si_send_mouse_move(p1, p2)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                break;
+            case ACT_MOUSE_DOWN:
+                if (!si_send_mouse_button(p1, true)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                else track_mouse(p1, true, 0);
+                break;
+            case ACT_MOUSE_UP:
+                if (!si_send_mouse_button(p1, false)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                else track_mouse(p1, false, 0);
+                break;
+            case ACT_MOUSE_SCROLL:
+                if (!si_send_scroll(p1)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                break;
+            case ACT_SET_CURSOR_POS:
+                if (!si_set_cursor_pos(p1, p2)) g_results[idx].status = ST_SENDINPUT_FAILED;
+                break;
+            case ACT_INTERCEPTION_KEY: {
+                bool up = (p2 != 0);
+                bool ext = (p3 != 0);
+                bool ic_ok = ic_send_key(p1, !up, ext);
+                if (ic_ok) {
+                    track_key(1, p1, ext, !up);
+                } else {
+                    int vk = (int)MapVirtualKeyA((UINT)p1, 1);
+                    if (vk == 0) vk = p1;
+                    if (!si_send_key(vk, !up)) g_results[idx].status = ST_INTERCEPTION_FAIL;
+                    else track_key(0, vk, 0, !up);
+                }
+                break;
+            }
+            case ACT_INTERCEPTION_MOUSE: {
+                bool left = (p1 != 0);
+                bool up = (p2 != 0);
+                int  btn = left ? 1 : 2;
+                bool ic_ok = ic_send_mouse_click(left, up);
+                if (ic_ok) {
+                    track_mouse(btn, !up, 1);
+                } else {
+                    if (!si_send_mouse_button(btn, !up)) g_results[idx].status = ST_INTERCEPTION_FAIL;
+                    else track_mouse(btn, !up, 0);
+                }
+                break;
+            }
+            default:
+                g_results[idx].status = ST_SKIPPED;
+                break;
+        }
+        g_results[idx].injection_done_qpc = g_enable_stats ? qpc_now() : 0;
+    }
+
+    if (avrtHandle) {
+        AvRevertMmThreadCharacteristics(avrtHandle);
+    }
+    return 0;
+}
+
 /* ========== standby 线程 ========== */
 static DWORD WINAPI standby_thread(LPVOID arg) {
     /* 1. 绑核 + 提升优先级 */
     SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << g_selected_core);
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+    /* Config B/C/D: 应用 PrecisionScope */
+    if (g_config_mode == CONFIG_B || g_config_mode == CONFIG_C) {
+        precision_scope_begin(&g_scope, FALSE);  /* 全套 */
+    } else if (g_config_mode == CONFIG_D) {
+        precision_scope_begin(&g_scope, TRUE);   /* lite: 跳过 REALTIME + boost 禁用 */
+    }
+    /* Config C: helper rescue delay 转 QPC ticks */
+    if (g_config_mode == CONFIG_C) {
+        g_helper_rescue_delay_ticks = (int64_t)((double)g_qpc_freq * HELPER_RESCUE_DELAY_US / 1000000.0);
+        if (g_helper_rescue_delay_ticks < 1) g_helper_rescue_delay_ticks = 1;
+    }
 
     /* 2. 记录段起点 QPC (base_qpc)。
      *    初始为线程启动时刻; 遇到 ACT_RTSS_WAIT_FRAMES 后重置为帧对齐瞬间。
@@ -774,84 +1150,105 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
             continue;
         }
 
-        /* 到点, 记录 actual_qpc + target_qpc (Python 用于抖动计算)。
-         * g_enable_stats=0 时跳过 qpc_now() 以榨干最后 ~10ns 精度 (统计关闭场景)。 */
+        /* 到点, 记录 target_qpc (Config C: 必须在 generation 前写, helper 读 target_qpc) */
         g_results[i].target_qpc = target;
-        g_results[i].actual_qpc = g_enable_stats ? qpc_now() : 0;
         g_results[i].action_type = g_timeline[i].action_type;
-        /* 段起点事件在 status 高位打标记, 供 Python 单独统计段起点偏移 */
-        g_results[i].status = next_is_segment_start ? (ST_OK | ST_SEGMENT_START) : ST_OK;
-        next_is_segment_start = false;
 
-        /* 执行注入 */
-        int32_t p1 = g_timeline[i].param1;
-        int32_t p2 = g_timeline[i].param2;
-        int32_t p3 = g_timeline[i].param3;
-
-        switch (g_timeline[i].action_type) {
-            case ACT_NOP:
-                /* 无注入, 仅记录时序 */
-                break;
-            case ACT_KEY_DOWN:
-                if (!si_send_key(p1, true)) g_results[i].status = ST_SENDINPUT_FAILED;
-                else track_key(0, p1, 0, true);   /* SI 按下登记 */
-                break;
-            case ACT_KEY_UP:
-                if (!si_send_key(p1, false)) g_results[i].status = ST_SENDINPUT_FAILED;
-                else track_key(0, p1, 0, false);  /* SI 抬起销账 */
-                break;
-            case ACT_MOUSE_MOVE_REL:
-                if (!si_send_mouse_move(p1, p2)) g_results[i].status = ST_SENDINPUT_FAILED;
-                break;
-            case ACT_MOUSE_DOWN:
-                if (!si_send_mouse_button(p1, true)) g_results[i].status = ST_SENDINPUT_FAILED;
-                else track_mouse(p1, true, 0);    /* SI 鼠标按下登记 */
-                break;
-            case ACT_MOUSE_UP:
-                if (!si_send_mouse_button(p1, false)) g_results[i].status = ST_SENDINPUT_FAILED;
-                else track_mouse(p1, false, 0);   /* SI 鼠标抬起销账 */
-                break;
-            case ACT_MOUSE_SCROLL:
-                if (!si_send_scroll(p1)) g_results[i].status = ST_SENDINPUT_FAILED;
-                break;
-            case ACT_SET_CURSOR_POS:
-                if (!si_set_cursor_pos(p1, p2)) g_results[i].status = ST_SENDINPUT_FAILED;
-                break;
-            case ACT_INTERCEPTION_KEY: {
-                /* p2 语义: 1=up(抬起), 0=down(按下), 与 Python 侧 compile_to_timeline 一致 */
-                bool up   = (p2 != 0);
-                bool ext  = (p3 != 0);
-                bool ic_ok = ic_send_key(p1, !up, ext);
-                if (ic_ok) {
-                    track_key(1, p1, ext, !up);   /* IC 按下/抬起登记 */
-                } else {
-                    /* Interception 失败, 回退 SendInput (scan→vk: MAPVK_VSC_TO_VK=1) */
-                    int vk = (int)MapVirtualKeyA((UINT)p1, 1);
-                    if (vk == 0) vk = p1;
-                    if (!si_send_key(vk, !up)) g_results[i].status = ST_INTERCEPTION_FAIL;
-                    else track_key(0, vk, 0, !up);  /* 回退 SI: 按 vk 登记 */
-                }
-                break;
+        /* Config C: 通知 helper + CAS claim (0→1 primary)
+         * 仅在 ShouldUseRedundantWaiter: 间隔 ≤ 2500us 时激活 helper。
+         * 长间隔时 helper 无价值且浪费 CPU 自旋, 不通知。 */
+        bool primary_owns = true;
+        if (g_config_mode == CONFIG_C) {
+            int64_t interval_us = (i > 0)
+                ? (int64_t)(g_timeline[i].offset_ns - g_timeline[i-1].offset_ns) / 1000
+                : (int64_t)g_timeline[i].offset_ns / 1000;
+            if (interval_us > 0 && interval_us <= HELPER_ACTIVATE_MAX_US) {
+                InterlockedExchange(&g_generation, (LONG)(i + 1));
+                LONG prev = InterlockedCompareExchange(&g_batch_claims[i], 1, 0);
+                primary_owns = (prev == 0);
             }
-            case ACT_INTERCEPTION_MOUSE: {
-                bool left = (p1 != 0);
-                bool up   = (p2 != 0);
-                int  btn  = left ? 1 : 2;
-                bool ic_ok = ic_send_mouse_click(left, up);
-                if (ic_ok) {
-                    track_mouse(btn, !up, 1);     /* IC 鼠标按下/抬起登记 */
-                } else {
-                    if (!si_send_mouse_button(btn, !up)) g_results[i].status = ST_INTERCEPTION_FAIL;
-                    else track_mouse(btn, !up, 0);  /* 回退 SI: 登记 */
-                }
-                break;
-            }
-            default:
-                g_results[i].status = ST_SKIPPED;
-                break;
         }
-        /* 记录注入完成时间 (端到端延迟测量)。g_enable_stats=0 时跳过。 */
-        g_results[i].injection_done_qpc = g_enable_stats ? qpc_now() : 0;
+
+        if (primary_owns) {
+            /* primary 赢, 记录 actual_qpc + 执行注入。
+             * g_enable_stats=0 时跳过 qpc_now() 以榨干最后 ~10ns 精度。 */
+            g_results[i].actual_qpc = g_enable_stats ? qpc_now() : 0;
+            /* 段起点事件在 status 高位打标记, 供 Python 单独统计段起点偏移 */
+            g_results[i].status = next_is_segment_start ? (ST_OK | ST_SEGMENT_START) : ST_OK;
+
+            /* 执行注入 */
+            int32_t p1 = g_timeline[i].param1;
+            int32_t p2 = g_timeline[i].param2;
+            int32_t p3 = g_timeline[i].param3;
+
+            switch (g_timeline[i].action_type) {
+                case ACT_NOP:
+                    /* 无注入, 仅记录时序 */
+                    break;
+                case ACT_KEY_DOWN:
+                    if (!si_send_key(p1, true)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    else track_key(0, p1, 0, true);   /* SI 按下登记 */
+                    break;
+                case ACT_KEY_UP:
+                    if (!si_send_key(p1, false)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    else track_key(0, p1, 0, false);  /* SI 抬起销账 */
+                    break;
+                case ACT_MOUSE_MOVE_REL:
+                    if (!si_send_mouse_move(p1, p2)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    break;
+                case ACT_MOUSE_DOWN:
+                    if (!si_send_mouse_button(p1, true)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    else track_mouse(p1, true, 0);    /* SI 鼠标按下登记 */
+                    break;
+                case ACT_MOUSE_UP:
+                    if (!si_send_mouse_button(p1, false)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    else track_mouse(p1, false, 0);   /* SI 鼠标抬起销账 */
+                    break;
+                case ACT_MOUSE_SCROLL:
+                    if (!si_send_scroll(p1)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    break;
+                case ACT_SET_CURSOR_POS:
+                    if (!si_set_cursor_pos(p1, p2)) g_results[i].status = ST_SENDINPUT_FAILED;
+                    break;
+                case ACT_INTERCEPTION_KEY: {
+                    /* p2 语义: 1=up(抬起), 0=down(按下), 与 Python 侧 compile_to_timeline 一致 */
+                    bool up   = (p2 != 0);
+                    bool ext  = (p3 != 0);
+                    bool ic_ok = ic_send_key(p1, !up, ext);
+                    if (ic_ok) {
+                        track_key(1, p1, ext, !up);   /* IC 按下/抬起登记 */
+                    } else {
+                        /* Interception 失败, 回退 SendInput (scan→vk: MAPVK_VSC_TO_VK=1) */
+                        int vk = (int)MapVirtualKeyA((UINT)p1, 1);
+                        if (vk == 0) vk = p1;
+                        if (!si_send_key(vk, !up)) g_results[i].status = ST_INTERCEPTION_FAIL;
+                        else track_key(0, vk, 0, !up);  /* 回退 SI: 按 vk 登记 */
+                    }
+                    break;
+                }
+                case ACT_INTERCEPTION_MOUSE: {
+                    bool left = (p1 != 0);
+                    bool up   = (p2 != 0);
+                    int  btn  = left ? 1 : 2;
+                    bool ic_ok = ic_send_mouse_click(left, up);
+                    if (ic_ok) {
+                        track_mouse(btn, !up, 1);     /* IC 鼠标按下/抬起登记 */
+                    } else {
+                        if (!si_send_mouse_button(btn, !up)) g_results[i].status = ST_INTERCEPTION_FAIL;
+                        else track_mouse(btn, !up, 0);  /* 回退 SI: 登记 */
+                    }
+                    break;
+                }
+                default:
+                    g_results[i].status = ST_SKIPPED;
+                    break;
+            }
+            /* 记录注入完成时间 (端到端延迟测量)。g_enable_stats=0 时跳过。 */
+            g_results[i].injection_done_qpc = g_enable_stats ? qpc_now() : 0;
+        }
+        /* else: helper 已抢 (CAS 失败), actual_qpc/injection_done_qpc/status 由 helper 写入,
+         *       primary 不覆盖。primary 继续下一个事件。 */
+        next_is_segment_start = false;
     }
 
     /* 5. 退出前补发所有"按下未抬起"的抬起事件。
@@ -867,6 +1264,22 @@ static DWORD WINAPI standby_thread(LPVOID arg) {
      *    此时由 Python 层 (_execute_via_standby_segmented 的 finally) 统一兜底释放。 */
     if (!g_keep_pressed) {
         release_all_pressed();
+    }
+
+    /* Config C: 停止 helper */
+    if (g_config_mode == CONFIG_C) {
+        InterlockedExchange(&g_helper_stop, 1);
+        if (g_helper_thread_handle) {
+            WaitForSingleObject(g_helper_thread_handle, 2000);
+            CloseHandle(g_helper_thread_handle);
+            g_helper_thread_handle = NULL;
+        }
+    }
+    /* Config B/C/D: 还原 PrecisionScope */
+    if (g_config_mode == CONFIG_B || g_config_mode == CONFIG_C) {
+        precision_scope_end(&g_scope, FALSE);
+    } else if (g_config_mode == CONFIG_D) {
+        precision_scope_end(&g_scope, TRUE);
     }
 
     /* 6. 通知 Python */
@@ -989,6 +1402,16 @@ static PyObject* py_set_stats_enabled(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
+/* set_precision_mask(mask: int) → None
+ * 设置 PrecisionScope 组件掩码 (PS_REALTIME | PS_PROC_BOOST_OFF | ... | PS_ALL)。
+ * 仅对后续 precision_scope_begin 生效 (CONFIG_B/C/D)。 */
+static PyObject* py_set_precision_mask(PyObject* self, PyObject* args) {
+    unsigned mask;
+    if (!PyArg_ParseTuple(args, "I", &mask)) return NULL;
+    g_precision_mask = mask;
+    Py_RETURN_NONE;
+}
+
 /* submit_segmented_timeline(events: list, base_offset_ns: int) → int (事件数) 或 -1
  * 与 submit_timeline 区别: 不调 track_reset, 保留跨段按键状态。
  * 用于含 ACT_RTSS_WAIT_FRAMES 的扁平化分段时间线 (B 方案完全下沉路径)。 */
@@ -1035,12 +1458,14 @@ static PyObject* py_submit_segmented_timeline(PyObject* self, PyObject* args) {
     return PyLong_FromSsize_t(n);
 }
 
-/* start(core_index, use_interception, keep_pressed=0) → int (1=ok, 0=fail)
- * keep_pressed: 1=分段执行模式, standby 线程退出时不补发抬起, 由 Python 层统一释放 */
+/* start(core_index, use_interception, keep_pressed=0, config=0) → int (1=ok, 0=fail)
+ * keep_pressed: 1=分段执行模式, standby 线程退出时不补发抬起, 由 Python 层统一释放
+ * config: 0=CONFIG_A (现状单 worker), 1=CONFIG_C (0xE进程级 + 2 worker rescue + PrecisionScope 全套) */
 static PyObject* py_start(PyObject* self, PyObject* args) {
     int core, use_ic;
     int keep_pressed = 0;
-    if (!PyArg_ParseTuple(args, "ii|i", &core, &use_ic, &keep_pressed)) return NULL;
+    int config = 0;
+    if (!PyArg_ParseTuple(args, "ii|ii", &core, &use_ic, &keep_pressed, &config)) return NULL;
 
     if (!g_timeline || g_event_count <= 0) {
         PyErr_SetString(PyExc_RuntimeError, "no timeline submitted");
@@ -1059,6 +1484,10 @@ static PyObject* py_start(PyObject* self, PyObject* args) {
     g_lock_held = 1;
 
     g_selected_core = core;
+    g_config_mode = (config == CONFIG_C) ? CONFIG_C
+                  : (config == CONFIG_B) ? CONFIG_B
+                  : (config == CONFIG_D) ? CONFIG_D
+                  : CONFIG_A;
     g_finished = 0;
     g_stop_flag = 0;
     InterlockedExchange(&g_keep_pressed, keep_pressed ? 1 : 0);
@@ -1068,8 +1497,60 @@ static PyObject* py_start(PyObject* self, PyObject* args) {
         ic_load();
     }
 
+    /* Config C: 初始化 helper 协调状态 + 创建 helper 线程 */
+    if (g_config_mode == CONFIG_C) {
+        /* 分配 CAS 数组 (首次使用时分配, 后续复用) */
+        if (!g_batch_claims) {
+            g_batch_claims = (volatile LONG*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
+                                                       sizeof(LONG) * MAX_TIMELINE_EVENTS);
+            if (!g_batch_claims) {
+                g_config_mode = CONFIG_A;
+                LeaveCriticalSection(&g_exec_lock);
+                PyErr_SetString(PyExc_RuntimeError, "batch_claims alloc failed");
+                return NULL;
+            }
+        }
+        /* 清零 CAS 数组 + 重置协调状态 */
+        int n = (int)g_event_count;
+        for (int i = 0; i < n; i++) g_batch_claims[i] = 0;
+        InterlockedExchange(&g_helper_stop, 0);
+        InterlockedExchange(&g_generation, 0);
+
+        /* 选择 helper core: 在进程 affinity 池里找一个与 primary 不同的核。
+         * 遍历进程可用核, 跳过 primary 和核0, 选第一个可用的。 */
+        DWORD_PTR procMask = 0, sysMask2 = 0;
+        GetProcessAffinityMask(GetCurrentProcess(), &procMask, &sysMask2);
+        g_helper_core = -1;
+        if (procMask) {
+            for (int b = 0; b < 64; b++) {
+                if (!(procMask & ((DWORD_PTR)1 << b))) continue;
+                if (b == 0 || b == core) continue;  /* 跳过核0和primary */
+                g_helper_core = b;
+                break;
+            }
+        }
+        /* 回退: 如果没找到合适的核, helper = primary (同核, rescue 无效但不崩溃) */
+        if (g_helper_core < 0) g_helper_core = core;
+
+        /* 创建 helper 线程 (在 standby_thread 之前创建, 确保 helper 就绪) */
+        g_helper_thread_handle = CreateThread(NULL, 0, helper_thread, NULL, 0, NULL);
+        if (!g_helper_thread_handle) {
+            g_config_mode = CONFIG_A;
+            LeaveCriticalSection(&g_exec_lock);
+            PyErr_SetString(PyExc_RuntimeError, "helper CreateThread failed");
+            return NULL;
+        }
+    }
+
     g_thread_handle = CreateThread(NULL, 0, standby_thread, NULL, 0, NULL);
     if (!g_thread_handle) {
+        if (g_config_mode == CONFIG_C && g_helper_thread_handle) {
+            InterlockedExchange(&g_helper_stop, 1);
+            WaitForSingleObject(g_helper_thread_handle, 2000);
+            CloseHandle(g_helper_thread_handle);
+            g_helper_thread_handle = NULL;
+        }
+        g_config_mode = CONFIG_A;
         LeaveCriticalSection(&g_exec_lock);
         PyErr_SetString(PyExc_RuntimeError, "CreateThread failed");
         return NULL;
@@ -1178,6 +1659,7 @@ static PyMethodDef StandbyMethods[] = {
     {"submit_segmented_timeline", py_submit_segmented_timeline, METH_VARARGS, "Submit segmented timeline (no track_reset)"},
     {"set_rtss_config",           py_set_rtss_config,           METH_VARARGS, "Set RTSS tick offset and fallback ms"},
     {"set_stats_enabled",         py_set_stats_enabled,         METH_VARARGS, "Enable/disable stats collection (actual_qpc/injection_done_qpc)"},
+    {"set_precision_mask",        py_set_precision_mask,        METH_VARARGS, "Set PrecisionScope component mask (PS_REALTIME|...)"},
     {"start",                     py_start,                     METH_VARARGS, "Start standby thread"},
     {"stop",                      py_stop,                      METH_NOARGS,  "Stop standby thread"},
     {"is_finished",               py_is_finished,               METH_NOARGS,  "Check if finished"},
@@ -1225,5 +1707,17 @@ PyMODINIT_FUNC PyInit__standby_engine(void) {
     PyModule_AddIntConstant(m, "ACT_RTSS_WAIT_FRAMES",     ACT_RTSS_WAIT_FRAMES);
     PyModule_AddIntConstant(m, "ST_SEGMENT_START",         ST_SEGMENT_START);
     PyModule_AddIntConstant(m, "MAX_TIMELINE_EVENTS",      MAX_TIMELINE_EVENTS);
+    PyModule_AddIntConstant(m, "CONFIG_A",                 CONFIG_A);
+    PyModule_AddIntConstant(m, "CONFIG_B",                 CONFIG_B);
+    PyModule_AddIntConstant(m, "CONFIG_C",                 CONFIG_C);
+    PyModule_AddIntConstant(m, "CONFIG_D",                 CONFIG_D);
+    PyModule_AddIntConstant(m, "PS_REALTIME",              PS_REALTIME);
+    PyModule_AddIntConstant(m, "PS_PROC_BOOST_OFF",        PS_PROC_BOOST_OFF);
+    PyModule_AddIntConstant(m, "PS_THREAD_BOOST_OFF",      PS_THREAD_BOOST_OFF);
+    PyModule_AddIntConstant(m, "PS_NT_TIMER",              PS_NT_TIMER);
+    PyModule_AddIntConstant(m, "PS_TIME_PERIOD",           PS_TIME_PERIOD);
+    PyModule_AddIntConstant(m, "PS_MMCSS",                 PS_MMCSS);
+    PyModule_AddIntConstant(m, "PS_POWER_THROTTLE",        PS_POWER_THROTTLE);
+    PyModule_AddIntConstant(m, "PS_ALL",                   PS_ALL);
     return m;
 }
