@@ -11,6 +11,7 @@
   --bg-deep:#0b0e13;--bg:#0f1319;--bg-raised:#151a23;--bg-surface:#1b2130;
   --bg-hover:#232b3c;--border:#262f40;--border-lt:#34405a;
   --txt:#dadfe9;--txt2:#a5afc3;--txt3:#79829a;
+  --txt1:var(--txt);
   --acc:#22d3ee;--acc-h:#67e8f9;--acc-dim:rgba(34,211,238,.12);
   --c-action:#4ade80;--c-action-d:rgba(74,222,128,.12);
   --c-detect:#facc15;--c-detect-d:rgba(250,204,21,.12);
@@ -39,6 +40,14 @@
 :root.theme-light ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.35)}
 :root.theme-light ::-webkit-scrollbar-track{background:rgba(0,0,0,.04)}
 :root.theme-light #mm{background:rgba(255,255,255,.9);border-color:var(--border)}
+/* 节点画布快捷参数 label 框：暗色主题用 rgba(255,255,255,.0x)，亮色主题下与背景融合，改为黑色半透明 */
+:root.theme-light .nf{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.12)}
+:root.theme-light .nf:focus{background:rgba(0,0,0,.06)}
+:root.theme-light .nd-row:hover .nf{background:rgba(0,0,0,.08);border-color:rgba(0,0,0,.18)}
+:root.theme-light .nf-sel{background-color:var(--bg-surface)}
+:root.theme-light .nf-chk .chk-mk{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.2)}
+:root.theme-light .nf-ro{background:rgba(0,0,0,.04)}
+:root.theme-light .nf-ro:hover{background:rgba(0,0,0,.08)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--fui);background:var(--bg-deep);color:var(--txt);overflow:hidden;height:100vh;font-size:13px;line-height:1.5;user-select:none}
 ::-webkit-scrollbar{width:5px;height:5px}
