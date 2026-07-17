@@ -314,6 +314,7 @@ def _run_monitor(params, context):
     trigger_count = 0
     last_trigger_time = time.time()
     watcher = None
+    is_locked = False  # 追踪当前是否处于 RTSS 锁帧状态，用于异常/超时退出时补发恢复键
 
     try:
         if combos:
@@ -366,6 +367,7 @@ def _run_monitor(params, context):
                 break
 
             _send_key(rtss_hotkey)
+            is_locked = True
             context.log("info", "[防跳秒] 已发送锁帧键: {}".format(rtss_hotkey))
 
             if not _sleep(wait_after_lock):
@@ -388,6 +390,7 @@ def _run_monitor(params, context):
                         break
                 if not bright_ok:
                     _send_key(rtss_hotkey)
+                    is_locked = False
                     if stop_reason:
                         break
                     continue
@@ -397,6 +400,7 @@ def _run_monitor(params, context):
                 break
 
             _send_key(rtss_hotkey)
+            is_locked = False
             context.log("info", "[防跳秒] 已恢复帧率")
 
             if cooldown_after_cycle > 0:
@@ -417,6 +421,9 @@ def _run_monitor(params, context):
     finally:
         if watcher:
             watcher.stop()
+        if is_locked:
+            _send_key(rtss_hotkey)
+            context.log("info", "[防跳秒] 退出时仍处于锁帧状态，补发 RTSS 恢复键: {}".format(rtss_hotkey))
 
     final_reason = _should_stop(context, control_var, max_count, trigger_count,
                                 idle_timeout, last_trigger_time) or "max_count"

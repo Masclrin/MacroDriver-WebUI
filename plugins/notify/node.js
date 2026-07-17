@@ -89,7 +89,7 @@ var _notifyHelper = {
       + '<div style="margin-left:auto;cursor:pointer;pointer-events:auto;color:var(--txt3,#5c5c72);font-size:16px;line-height:1;padding:2px 4px" class="notify-close">&times;</div>'
       + '</div>'
       + '<div style="height:1px;background:var(--border,#2d2d44);margin:10px 16px 0 28px"></div>'
-      + '<div style="font-size:' + fontSize + 'px;color:var(--txt2,#9898ac);padding:10px 16px 14px 28px;line-height:1.6">' + message + '</div>'
+      + '<div style="font-size:' + fontSize + 'px;color:var(--txt2,#9898ac);padding:10px 16px 14px 28px;line-height:1.6;white-space:pre-wrap;word-break:break-all;overflow-wrap:break-word;max-height:60vh;overflow-y:auto">' + message + '</div>'
       + '<div style="height:3px;background:var(--bg2,#24243a);position:relative;overflow:hidden">'
       + '<div class="notify-progress" style="height:100%;background:' + borderColor + ';width:100%;transition:linear"></div>'
       + '</div>';

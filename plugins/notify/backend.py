@@ -189,8 +189,49 @@ class _PopupWindow:
         self.kernel32 = ctypes.windll.kernel32
         self._proc_refs = []
 
+    def _calc_text_height(self, text, width, font_size):
+        """用 DrawTextW DT_CALCRECT 计算文本在指定宽度下换行后的高度(px)。
+        失败返回 None。"""
+        if not text:
+            return 0
+        hdc = self.user32.GetDC(0)
+        if not hdc:
+            return None
+        try:
+            lf = _LOGFONTA()
+            lf.lfHeight = -font_size if font_size else -12
+            lf.lfWeight = 400
+            lf.lfFaceName = b"Microsoft YaHei\x00"
+            hf = self.gdi32.CreateFontIndirectA(byref(lf))
+            if not hf:
+                return None
+            of = self.gdi32.SelectObject(hdc, hf)
+            try:
+                rc = _RECT(0, 0, width, 0)
+                # DT_WORDBREAK | DT_EDITCONTROL | DT_CALCRECT
+                flags = 0x04 | 0x40 | 0x400
+                self.user32.DrawTextW(hdc, text, -1, byref(rc), flags)
+                return rc.bottom - rc.top
+            finally:
+                self.gdi32.SelectObject(hdc, of)
+                self.gdi32.DeleteObject(hf)
+        except Exception:
+            return None
+        finally:
+            self.user32.ReleaseDC(0, hdc)
+
     def show(self, title, message, sound="default", duration_ms=3000,
              position="bottom-right", width=380, height=140, font_size=12):
+        # 根据消息内容动态扩展窗口高度，防止文字过多被截断
+        try:
+            avail_w = width - (self._PAD + self._BAR_W + 10) - self._PAD
+            text_h = self._calc_text_height(message, avail_w, font_size)
+            if text_h is not None:
+                sep_y = self._PAD + 26
+                calc_height = sep_y + 10 + text_h + 18 + 10
+                height = max(height, calc_height)
+        except Exception:
+            pass
         screen = self._get_screen_size()
         x, y = self._calc_position(position, screen["width"], screen["height"], width, height)
         result = {"hwnd": None, "closed": False}
