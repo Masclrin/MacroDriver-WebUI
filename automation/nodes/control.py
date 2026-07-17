@@ -308,6 +308,8 @@ def register(registry):
             "speed_factor": {"type": "number", "default": 1.0, "description": "倍速(1.0=原速,2.0=两倍)"},
             "timeline_mode": {"type": "string", "enum": ["absolute", "relative_compensated"], "default": "absolute", "description": "时间线模式", "display_names": {"absolute": "绝对时间线(高精度)", "relative_compensated": "相对补偿(低占用)"}},
             "random_delay": {"type": "boolean", "default": False, "description": "启用随机延迟修正(拟人化)"},
+            "standby_override": {"type": "string", "enum": ["inherit", "on", "off"], "default": "inherit", "description": "Standby 工业级精度引擎覆盖。inherit=使用全局设置; on=强制启用(简单线性宏走 native dll 级精度); off=强制关闭走 Python 路径", "display_names": {"inherit": "继承全局", "on": "强制启用", "off": "强制关闭"}},
+            "rtss_override": {"type": "string", "enum": ["inherit", "on", "off"], "default": "inherit", "description": "RTSS 帧同步覆盖(仅对含帧延迟f的宏生效)。inherit=使用全局设置; on=强制启用(未检测到RTSS时走fallback); off=强制关闭(帧延迟回退为固定ms)", "display_names": {"inherit": "继承全局", "on": "强制启用", "off": "强制关闭"}},
         },
         "handler": "_handle_call_script_sync",
     })
@@ -328,6 +330,8 @@ def register(registry):
             "speed_factor": {"type": "number", "default": 1.0, "description": "倍速(1.0=原速,2.0=两倍)"},
             "timeline_mode": {"type": "string", "enum": ["absolute", "relative_compensated"], "default": "absolute", "description": "时间线模式", "display_names": {"absolute": "绝对时间线(高精度)", "relative_compensated": "相对补偿(低占用)"}},
             "random_delay": {"type": "boolean", "default": False, "description": "启用随机延迟修正(拟人化)"},
+            "standby_override": {"type": "string", "enum": ["inherit", "on", "off"], "default": "inherit", "description": "Standby 工业级精度引擎覆盖。inherit=使用全局设置; on=强制启用(简单线性宏走 native dll 级精度); off=强制关闭走 Python 路径", "display_names": {"inherit": "继承全局", "on": "强制启用", "off": "强制关闭"}},
+            "rtss_override": {"type": "string", "enum": ["inherit", "on", "off"], "default": "inherit", "description": "RTSS 帧同步覆盖(仅对含帧延迟f的宏生效)。inherit=使用全局设置; on=强制启用(未检测到RTSS时走fallback); off=强制关闭(帧延迟回退为固定ms)", "display_names": {"inherit": "继承全局", "on": "强制启用", "off": "强制关闭"}},
         },
         "handler": "_handle_call_script_async",
     })

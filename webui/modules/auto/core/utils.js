@@ -104,7 +104,7 @@ function _checkShowWhen(showWhen, allParams) {
 
 function _pickSummaryKeys(schema, properties) {
     var keys = [];
-    var skip = { hwnd_var: true, store_var: true, store_number: true, path: true, template_path: true, method: true, trigger_mode: true, on_trigger: true, auto_stop: true, recheck_delay_ms: true, max_triggers: true, mode: true, wait: true, wait_interval_ms: true, wait_timeout_ms: true, pyramid_levels: true, area_ratio_threshold: true, monitor_index: true, fps: true, enabled: true, check_mode: true, sample_mode: true, cache_strategy: true, cache_interval_ms: true, engine: true, change_threshold: true, tolerance: true, c: true };
+    var skip = { hwnd_var: true, store_var: true, store_number: true, path: true, template_path: true, method: true, trigger_mode: true, on_trigger: true, auto_stop: true, recheck_delay_ms: true, max_triggers: true, mode: true, wait: true, wait_interval_ms: true, wait_timeout_ms: true, pyramid_levels: true, area_ratio_threshold: true, monitor_index: true, fps: true, enabled: true, check_mode: true, sample_mode: true, cache_strategy: true, cache_interval_ms: true, engine: true, change_threshold: true, tolerance: true, c: true, standby_override: true, rtss_override: true };
     var priority = { x: 1, y: 2, dx: 3, dy: 4, button: 5, key: 6, text: 7, delay: 8, duration: 9, amount: 10 };
     var allKeys = [];
     for (var k in schema) {

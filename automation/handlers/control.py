@@ -145,15 +145,33 @@ def _handle_call_script_sync(node: ExecNode, ctx: ExecContext):
     _oe = _get_old_engine()
     compiled = _get_compiled_script(path, _oe)
 
+    # 节点级 standby/RTSS 覆盖：inherit=读全局; on=强制启用; off=强制关闭
+    standby_override = node.params.get("standby_override", "inherit")
+    if standby_override not in ("on", "off", "inherit"):
+        standby_override = "inherit"
+    rtss_override = node.params.get("rtss_override", "inherit")
+    if rtss_override not in ("on", "off", "inherit"):
+        rtss_override = "inherit"
+
     opts = {
         "speed_factor": float(node.params.get("speed_factor", 1.0)),
         "timeline_mode": node.params.get("timeline_mode", "absolute"),
         "random_delay": node.params.get("random_delay", False),
         "auto_release_modifiers": False,
+        "standby_override": standby_override,
+        "rtss_override": rtss_override,
     }
+
+    macro_name = os.path.basename(path)
+
+    # Standby 分支决策：on=强制尝试; inherit=读全局 ENABLE_STANDBY_ENGINE; off=跳过
+    use_standby = (standby_override == "on") or (
+        standby_override == "inherit" and getattr(_oe, "ENABLE_STANDBY_ENGINE", False)
+        and _oe._standby_available())
 
     if len(compiled) <= 2:
         # 短宏路径同样应用 speed_factor (帧延迟 delay<0 不走 precise_sleep, 由语义保证)
+        # 短宏不走 standby（standby 需要 submit_timeline 开销大于收益）
         sf = max(0.05, float(opts.get("speed_factor", 1.0)))
         for func, delay, _, _, _ in compiled:
             if ctx.stop_event.is_set():
@@ -166,8 +184,24 @@ def _handle_call_script_sync(node: ExecNode, ctx: ExecContext):
             # 仅对 ms 延迟 (delay>0) 应用倍速; 帧延迟 (delay<0) 此路径无法处理, 跳过
             if delay > 0:
                 precise_sleep(delay / sf, ctx.stop_event, pause_event=_get_pause_event(ctx))
+    elif use_standby:
+        try:
+            ok = _oe._execute_via_standby(compiled, ctx.stop_event, macro_name, opts)
+            if ok:
+                _execute_flow(node.id, "next", ctx)
+                return
+            if not getattr(_oe, "STANDBY_FALLBACK_ON_FAIL", True):
+                print(f"[新引擎] standby 执行失败且未启用回退, 终止宏: {macro_name}")
+                _execute_flow(node.id, "next", ctx)
+                return
+            print(f"[新引擎] standby 回退到 Python 路径: {macro_name}")
+        except Exception as se:
+            if not getattr(_oe, "STANDBY_FALLBACK_ON_FAIL", True):
+                raise
+            print(f"[新引擎] standby 异常, 回退到 Python 路径: {se}")
+        _oe.execute_macro_once(compiled, ctx.stop_event, ctx.pause_event, macro_name=macro_name, options=opts)
     else:
-        _oe.execute_macro_once(compiled, ctx.stop_event, ctx.pause_event, macro_name=os.path.basename(path), options=opts)
+        _oe.execute_macro_once(compiled, ctx.stop_event, ctx.pause_event, macro_name=macro_name, options=opts)
 
     _execute_flow(node.id, "next", ctx)
 
@@ -183,11 +217,21 @@ def _handle_call_script_async(node: ExecNode, ctx: ExecContext):
     _oe = _get_old_engine()
     compiled = _get_compiled_script(path, _oe)
 
+    # 节点级 standby/RTSS 覆盖：inherit=读全局; on=强制启用; off=强制关闭
+    standby_override = node.params.get("standby_override", "inherit")
+    if standby_override not in ("on", "off", "inherit"):
+        standby_override = "inherit"
+    rtss_override = node.params.get("rtss_override", "inherit")
+    if rtss_override not in ("on", "off", "inherit"):
+        rtss_override = "inherit"
+
     opts = {
         "speed_factor": float(node.params.get("speed_factor", 1.0)),
         "timeline_mode": node.params.get("timeline_mode", "absolute"),
         "random_delay": node.params.get("random_delay", False),
         "auto_release_modifiers": False,
+        "standby_override": standby_override,
+        "rtss_override": rtss_override,
     }
 
     async_node_id = node.id

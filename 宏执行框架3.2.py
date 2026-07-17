@@ -1167,6 +1167,16 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
     local_batch_send = _opt.get("batch_send", ENABLE_BATCH_SEND)
     local_max_exec_time = _opt.get("max_exec_time", MAX_MACRO_EXEC_TIME)
 
+    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
+    # 设置 thread-local 覆盖，仅影响当前线程；执行完在 finally 中清除。
+    _rtss_override = _opt.get("rtss_override", "inherit")
+    if _rtss_override not in ("on", "off", "inherit"):
+        _rtss_override = "inherit"
+    try:
+        _get_rtss().set_thread_override(_rtss_override)
+    except Exception:
+        pass
+
     # 预计算批次统计
     batch_count = sum(1 for item in compiled_macro if item[2] == "batch")
     total_action_count = sum(
@@ -1653,6 +1663,12 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
         if gc_was_enabled:
             gc.enable()
 
+        # 清除当前线程的 RTSS 覆盖，避免泄漏到同线程后续执行
+        try:
+            _get_rtss().clear_thread_override()
+        except Exception:
+            pass
+
         if local_test_trace and reports:
             action_reports = [r for r in reports if isinstance(r.get("step"), int)]
             total_steps = sum(r.get("action_count", 1) for r in action_reports)
@@ -1723,6 +1739,29 @@ class _RtssSync:
         self._view   = None
         self._last_tick       = None
         self._warned_fallback = False
+        # 每线程覆盖：'on' / 'off' / 'inherit' (默认 None ≡ inherit)
+        # 用于"调用宏"节点按节点级 rtss_override 决策，不污染全局开关。
+        self._local = threading.local()
+
+    def set_thread_override(self, override):
+        """设置当前线程的 RTSS 覆盖策略。
+        override: 'on' / 'off' / 'inherit' / None
+          - 'on'      : 强制尝试 RTSS 路径（无视全局 RTSS_ENABLED=False）；
+                        若 RTSS 共享内存仍不可用则回退 fallback。
+          - 'off'     : 强制走 fallback 固定 ms 延迟。
+          - 'inherit' : 使用全局 RTSS_ENABLED 开关（默认行为）。
+        """
+        if override in ('on', 'off', 'inherit', None):
+            self._local.rtss_override = override
+        else:
+            self._local.rtss_override = 'inherit'
+
+    def clear_thread_override(self):
+        """清除当前线程的覆盖，回到 inherit 语义。"""
+        self._local.rtss_override = 'inherit'
+
+    def _get_thread_override(self):
+        return getattr(self._local, 'rtss_override', 'inherit')
 
     def _ensure_open(self):
         if self._view:
@@ -1837,7 +1876,15 @@ class _RtssSync:
         if n <= 0:
             return 0
         to = timeout_s if timeout_s is not None else RTSS_FRAME_TIMEOUT_S
-        if not RTSS_ENABLED or not self._ensure_open():
+        # 解析 thread-local 覆盖：on=强制尝试 RTSS; off=强制 fallback; inherit=读全局开关
+        override = self._get_thread_override()
+        if override == 'off':
+            use_rtss = False
+        elif override == 'on':
+            use_rtss = self._ensure_open()
+        else:  # inherit / None
+            use_rtss = RTSS_ENABLED and self._ensure_open()
+        if not use_rtss:
             if not self._warned_fallback:
                 self._warned_fallback = True
                 print(f"[RTSS] 未检测到 RTSS，帧延迟回退为 {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
@@ -2309,13 +2356,24 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
     # 倍速: 新引擎从 options 传，旧引擎走全局 EXEC_SPEED_FACTOR
     local_speed = _opt.get("speed_factor", EXEC_SPEED_FACTOR)
 
+    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
+    # 同时设置 thread-local 覆盖，供 legacy 回退路径的 wait_frames 使用
+    _rtss_override = _opt.get("rtss_override", "inherit")
+    if _rtss_override not in ("on", "off", "inherit"):
+        _rtss_override = "inherit"
+    rtss.set_thread_override(_rtss_override)
+
     ST_SEGMENT_START = getattr(se, "ST_SEGMENT_START", 0x80000000)
     ACT_RTSS_WAIT = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
     ST_STATUS_MASK = 0x7FFFFFFF   # 掩掉段起点高位, 取低 31 位 status
 
     try:
         # 1. 侦测 RTSS entry offset, 配置 C 层 (返回 entry base, C 层自读 t1/fr/ft)
-        entry_offset = rtss.detect_entry_offset()
+        #    按 rtss_override 决策: off=强制 fallback(entry_offset=0); on/inherit=尝试侦测
+        if _rtss_override == "off":
+            entry_offset = 0
+        else:
+            entry_offset = rtss.detect_entry_offset()
         se.set_rtss_config(entry_offset, RTSS_FALLBACK_MS_PER_FRAME)
         if entry_offset == 0:
             print(f"[standby+RTSS] {macro_name}: 未检测到 RTSS 目标 entry, C 层走 fallback {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
@@ -2451,6 +2509,10 @@ def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, optio
         return False
     finally:
         _standby_release_fallback()
+        try:
+            rtss.clear_thread_override()
+        except Exception:
+            pass
 
 
 def _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name, options=None):
@@ -2462,6 +2524,12 @@ def _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name
 
     rtss = _get_rtss()
     rtss.reset()
+
+    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
+    _rtss_override = (options or {}).get("rtss_override", "inherit")
+    if _rtss_override not in ("on", "off", "inherit"):
+        _rtss_override = "inherit"
+    rtss.set_thread_override(_rtss_override)
 
     # ── 切分段 ──
     # 遇到 delay<0（帧延迟）的 item：该 item 的动作加入当前段（delay 清零），随后开帧等待
@@ -2510,6 +2578,10 @@ def _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name
 
     finally:
         _standby_release_fallback()
+        try:
+            rtss.clear_thread_override()
+        except Exception:
+            pass
 
 
 def trigger_macro(trigger_key, start_paused=False):

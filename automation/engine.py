@@ -381,6 +381,36 @@ class TaskPool:
                     pass
             _oe = _get_old_engine()
             try:
+                # 节点级 standby 覆盖：on=强制尝试 standby; off=强制 Python; inherit=读全局开关
+                _standby_ov = (options or {}).get("standby_override", "inherit")
+                if _standby_ov not in ("on", "off", "inherit"):
+                    _standby_ov = "inherit"
+                _use_standby = (_standby_ov == "on") or (
+                    _standby_ov == "inherit" and getattr(_oe, "ENABLE_STANDBY_ENGINE", False)
+                    and _oe._standby_available())
+                if _use_standby:
+                    try:
+                        ok = _oe._execute_via_standby(compiled, stop_event, macro_name, options)
+                        if ok:
+                            with self._lock:
+                                if task_id in self.tasks:
+                                    self.tasks[task_id].status = "completed"
+                            if on_complete:
+                                on_complete(task_id, "completed")
+                            return
+                        if not getattr(_oe, "STANDBY_FALLBACK_ON_FAIL", True):
+                            print(f"[TaskPool] standby 执行失败且未启用回退: {macro_name}")
+                            with self._lock:
+                                if task_id in self.tasks:
+                                    self.tasks[task_id].status = "completed"
+                            if on_complete:
+                                on_complete(task_id, "completed")
+                            return
+                        print(f"[TaskPool] standby 回退到 Python 路径: {macro_name}")
+                    except Exception as se:
+                        if not getattr(_oe, "STANDBY_FALLBACK_ON_FAIL", True):
+                            raise
+                        print(f"[TaskPool] standby 异常, 回退到 Python 路径: {se}")
                 _oe.execute_macro_once(compiled, stop_event, pause_event,
                                    macro_name=macro_name, options=options)
                 with self._lock:
