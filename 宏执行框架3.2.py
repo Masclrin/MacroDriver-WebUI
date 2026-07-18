@@ -138,7 +138,7 @@ STANDBY_MAX_EVENTS = 200000          # 时间线最大事件数 (与 MAX_COMPILE
 # 线程级设置不跨线程传递, C 侧 standby_thread 需独立设置, 与 Python 侧开关不冲突。
 STANDBY_PS_PRIORITY = True           # PRIORITY 组: REALTIME + boost 禁用
 STANDBY_PS_TIMER = True              # TIMER 组: NtSetTimer + timeBeginPeriod
-STANDBY_PS_MMCSS = True              # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
+STANDBY_PS_MMCSS = False             # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
 STANDBY_PS_POWER = True              # POWER 组: power throttling 禁用
 
 # —— RTSS 帧同步（混合精度宏）——

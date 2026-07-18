@@ -1001,7 +1001,7 @@ B 的 p999 降低 **71-82%**, p99 降低 **64-94%**, mean 降低 **51-72%**。
 # 宏执行框架3.2.py 全局参数
 STANDBY_PS_PRIORITY = True    # PRIORITY 组: REALTIME + 进程/线程 boost 禁用
 STANDBY_PS_TIMER = True       # TIMER 组: NtSetTimer + timeBeginPeriod
-STANDBY_PS_MMCSS = True       # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
+STANDBY_PS_MMCSS = False      # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
 STANDBY_PS_POWER = True       # POWER 组: power throttling 禁用
 ```
 
