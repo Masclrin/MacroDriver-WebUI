@@ -11,6 +11,11 @@
   --danger: #ff6b4a;
   --warn: #ffbe55;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+  /* 测试点高亮（暗色主题）：淡橘黄底 + 深字，hover 时加深，不会与背景糊在一起 */
+  --bp-bg: rgba(255, 190, 85, 0.85);
+  --bp-bg-hover: #ffd489;
+  --bp-fg: #2a1c06;
+  --bp-hover: rgba(150, 180, 205, 0.22);
 }
 
 * {
@@ -1178,7 +1183,9 @@ button.active-glow {
 }
 
 /* 测试点：由「行号」承担开关职责。
-   未标记时是普通行号；标记后数字背景高亮，一眼可见哪些行是测试点。 */
+   未标记时是普通行号；标记后数字背景高亮，一眼可见哪些行是测试点。
+   高亮色用**独立的 --bp-* 变量**，不直接复用 --warn ——
+   --warn 在亮色主题下是深棕 #9a6700，当作背景块很难看，故单独定义浅橘黄。 */
 .action-index.bp-toggle {
   cursor: pointer;
   min-width: 22px;
@@ -1189,23 +1196,23 @@ button.active-glow {
   transition: background 120ms ease, color 120ms ease;
 }
 
+/* 未标记：hover 只是淡淡一层灰底，提示"可点" */
 .action-list li:hover .action-index.bp-toggle {
-  background: rgba(150, 180, 205, 0.22);
+  background: var(--bp-hover);
+  color: var(--text);
 }
 
-.action-index.bp-toggle:hover {
-  background: rgba(255, 190, 85, 0.35);
-  color: var(--text, #1a2d3e);
-}
-
+/* 已标记（测试点）：实心浅橘黄底 + 深字，鼠标移上去**加深**而不是变透明 */
 .action-index.bp-toggle.on {
-  background: var(--warn);
-  color: #1a2d3e;
+  background: var(--bp-bg);
+  color: var(--bp-fg);
   font-weight: 700;
 }
 
+.action-list li:hover .action-index.bp-toggle.on,
 .action-index.bp-toggle.on:hover {
-  background: #ffcf7a;
+  background: var(--bp-bg-hover);
+  color: var(--bp-fg);
 }
 
 .action-list {
@@ -1894,6 +1901,11 @@ hr {
   --danger: #cf222e;
   --warn: #9a6700;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  /* 测试点高亮（亮色主题）：浅橘黄底 + 深棕字 —— 不再用深棕 #9a6700 当底色 */
+  --bp-bg: #ffe0b0;
+  --bp-bg-hover: #ffd18c;
+  --bp-fg: #7a4a00;
+  --bp-hover: rgba(31, 35, 40, 0.08);
 }
 
 /* 全局背景渐变 + 噪点（亮色版） */

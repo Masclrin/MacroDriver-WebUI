@@ -1030,7 +1030,7 @@ export function previewOps(op) {
     return;
   }
   if (op === 'bp-inline') {
-    // 打开第 3 行的双击内联编辑面板（用于自检测试点开关按钮的呈现）
+    // 打开第 3 行的双击内联编辑面板（用于自检"注释动作"按钮回到原位后的呈现）
     previewOps('bp');
     const v = state.editorViews[0] || getFocusedView();
     if (v && v.rows && v.rows.length > 2) {

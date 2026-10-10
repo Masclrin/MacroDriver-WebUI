@@ -5,6 +5,7 @@ import { getActionAtPath, getParentInsertTarget, setSelectedLine, getActionAndCo
 import { fillActionEditorByAction, buildActionFromInputs, ensureActionFormDefaultsForType } from './action-form.js';
 import { toggleCommentForPath } from './comment-ops.js';
 import { startInlineEdit, appendInlineEditorRow } from './inline-editor.js';
+import { updateBpVisual } from './bp-visual.js';
 
 // 每个列表 DOM 对应的「行数据」映射（行数据含路径与动作引用）
 const lineDataByList = new WeakMap();
@@ -234,7 +235,7 @@ export function updateSelectionHighlight(view) {
 }
 
 // 就地更新"测试点"标记（不重建列表）—— 实现在 bp-visual.js，此处再导出以兼容旧调用
-export { updateBpVisual } from './bp-visual.js';
+export { updateBpVisual };
 
 // 就地收起内联编辑器（不重建列表）
 function removeInlineEditorInPlace(view) {
