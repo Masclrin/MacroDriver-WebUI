@@ -661,33 +661,82 @@ class AutomationApiMixin:
         except Exception as e:
             return _err(f"获取屏幕信息失败: {e}")
 
-    def get_window_list(self):
+    @staticmethod
+    def _clean_window_text(text):
+        """清掉代理字符与控制字符。
+
+        某些进程（输入法/IME 宿主、UWP 壳）的窗口标题可能含孤立代理字符，
+        json.dumps 会直接抛 UnicodeEncodeError，导致整个 get_window_list 调用失败 ——
+        前端只会看到一个「未找到可见窗口」的提示，表现为“窗口选择栏打不开”。
+        这里统一做一次清洗，保证结果一定能被 pywebview 序列化。
+        """
+        if not text:
+            return ""
         try:
-            windows = []
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            text = text.encode("utf-8", "replace").decode("utf-8", "replace")
+        return "".join(ch for ch in text if ch == "\t" or ord(ch) >= 32)
 
-            def enum_callback(hwnd, _):
-                import ctypes
-                if ctypes.windll.user32.IsWindowVisible(hwnd):
-                    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-                    if length > 0:
-                        buf = ctypes.create_unicode_buffer(length + 1)
-                        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-                        title = buf.value
-                        if title:
-                            cls_buf = ctypes.create_unicode_buffer(256)
-                            ctypes.windll.user32.GetClassNameW(hwnd, cls_buf, 256)
-                            windows.append({
-                                "title": title,
-                                "hwnd": hwnd,
-                                "class_name": cls_buf.value,
-                            })
-
+    def get_window_list(self, include_untitled=False):
+        try:
             import ctypes
-            ctypes.windll.user32.EnumWindows(
-                ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_ulong, ctypes.c_ulong)(enum_callback), 0
-            )
+
+            user32 = ctypes.windll.user32
+
+            def _collect(allow_untitled):
+                result = []
+                seen = set()
+
+                def enum_callback(hwnd, _):
+                    # 关键：无论走哪条分支都必须 return True（非零），
+                    # 否则 EnumWindows 会在第一个不可见/无标题窗口处提前结束枚举。
+                    try:
+                        if not hwnd or hwnd in seen:
+                            return True
+                        seen.add(hwnd)
+                        if not user32.IsWindowVisible(hwnd):
+                            return True
+
+                        length = user32.GetWindowTextLengthW(hwnd)
+                        title = ""
+                        if length and length > 0:
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(hwnd, buf, length + 1)
+                            title = buf.value or ""
+
+                        cls_buf = ctypes.create_unicode_buffer(256)
+                        user32.GetClassNameW(hwnd, cls_buf, 256)
+                        class_name = cls_buf.value or ""
+
+                        title = self._clean_window_text(title)
+                        class_name = self._clean_window_text(class_name)
+
+                        if not title and not allow_untitled:
+                            return True
+
+                        result.append({
+                            "title": title or class_name,
+                            "hwnd": int(hwnd),
+                            "class_name": class_name,
+                        })
+                    except Exception as exc:
+                        print(f"[窗口枚举] 跳过异常窗口: {exc}")
+                    return True
+
+                # 句柄用 c_void_p 传递，避免 32 位截断
+                WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+                user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+                return result
+
+            windows = _collect(include_untitled)
+            if not windows:
+                # 放宽条件重试一次：部分全屏/独占程序标题为空，仅靠 IsWindowVisible 也需兜底
+                windows = _collect(True)
+            print(f"[窗口枚举] 共发现 {len(windows)} 个可选窗口")
             return _ok(windows)
         except Exception as e:
+            print(f"[窗口枚举] 失败: {e}")
             return _err(f"获取窗口列表失败: {e}")
 
     def capture_monitor_at_mouse(self):

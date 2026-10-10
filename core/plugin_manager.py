@@ -65,8 +65,78 @@ class PluginManager:
 
             cls._plugins[plugin_id] = entry
             _logger.info("[PluginManager] 插件已加载: %s", plugin_id)
+            # 尽力应用 ext 钩子（旧引擎未就绪时会在 list_ext_commands 里补做）
+            try:
+                cls.apply_ext_hooks(plugin_id)
+            except Exception:
+                pass
         except Exception as e:
             _logger.error("[PluginManager] 插件 %s 加载失败: %s", folder.name, e)
+
+    # ── T2-3：ext 附加指令注册钩子 ──────────────────────────────
+    @classmethod
+    def apply_ext_hooks(cls, plugin_id=None):
+        """让插件参与 ext 附加指令（描述符 + 处理器）。
+
+        约定：
+          · manifest.json 可选 ``"ext_commands": [ {描述符}, ... ]``  → 只声明描述符
+          · backend.py   可选 ``def register_ext(api):``              → 注册处理器
+            api.register_handler(name, handler, spec=None)
+            api.register_command(spec)
+
+        可重复调用（注册是幂等的）；旧引擎尚未加载时会静默跳过，
+        由 ``list_ext_commands`` 接口在引擎就绪后再次触发。
+        """
+        try:
+            from automation.engine import _get_old_engine
+            oe = _get_old_engine()
+        except Exception:
+            return 0
+
+        applied = 0
+        for pid, entry in list(cls._plugins.items()):
+            if plugin_id is not None and pid != plugin_id:
+                continue
+            manifest = entry.get("manifest") or {}
+            module = entry.get("module")
+
+            # 1) manifest 只声明描述符
+            for spec in (manifest.get("ext_commands") or []):
+                try:
+                    s = dict(spec)
+                    s.setdefault("plugin", pid)
+                    oe.register_ext_command(s)
+                    applied += 1
+                except Exception as e:
+                    _logger.error("[PluginManager] ext 描述符注册失败 %s: %s", pid, e)
+
+            # 2) backend 注册处理器（可同时带描述符）
+            if module is not None and hasattr(module, "register_ext"):
+                class _ExtApi:
+                    def __init__(self, plugin_id_):
+                        self.plugin_id = plugin_id_
+
+                    def register_handler(self, name, handler, spec=None):
+                        s = None
+                        if spec is not None:
+                            s = dict(spec)
+                            s.setdefault("plugin", self.plugin_id)
+                        return oe.register_ext_handler(name, handler, spec=s)
+
+                    def register_command(self, spec):
+                        s = dict(spec)
+                        s.setdefault("plugin", self.plugin_id)
+                        return oe.register_ext_command(s)
+
+                try:
+                    module.register_ext(_ExtApi(pid))
+                    applied += 1
+                except Exception as e:
+                    _logger.error("[PluginManager] ext 钩子异常 %s: %s", pid, e)
+
+        if applied:
+            _logger.info("[PluginManager] ext 钩子已应用 %d 项", applied)
+        return applied
 
     @classmethod
     def _load_backend(cls, plugin_id, path):

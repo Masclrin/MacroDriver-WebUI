@@ -133,11 +133,15 @@ export async function renderGlobalParams() {
         } else if (Array.isArray(field.options) && field.options.length) {
           input = document.createElement('select');
           input.className = 'param-input';
+          const displayNames = field.display_names || {};
           field.options.forEach((opt) => {
             const op = document.createElement('option');
-            op.value = String(opt);
-            op.textContent = String(opt);
-            op.selected = String(field.value) === String(opt);
+            const raw = String(opt);
+            const cn = displayNames[raw];
+            op.value = raw;
+            // 有中文名则显示 "中文 (原值)"，无则显示原值；避免用户面对 latency_first 之类英文串
+            op.textContent = cn ? `${cn} (${raw})` : raw;
+            op.selected = String(field.value) === raw;
             input.appendChild(op);
           });
           head.appendChild(input);
@@ -354,12 +358,49 @@ async function resetGlobalParamsToDefault() {
   showToast('默认参数已恢复');
 }
 
+async function checkHotkeyConflicts() {
+  const box = q('#hotkeyConflictResult');
+  if (!box) return;
+  try {
+    const res = await apiCall('get_hotkey_conflicts');
+    const conflicts = Array.isArray(res.conflicts) ? res.conflicts : [];
+    const total = res.hotkeys ? Object.keys(res.hotkeys).length : 0;
+    box.hidden = false;
+    if (!conflicts.length) {
+      box.className = 'hotkey-conflict-result ok';
+      box.innerHTML = `<div>热键检测完成：已绑定 ${total} 个按键，<strong>未发现冲突</strong>。</div>`;
+      return;
+    }
+    box.className = 'hotkey-conflict-result warn';
+    const items = conflicts.map((c) => {
+      const users = c.users
+        .map((u) => `${escapeHtml(u.label)}<span class="hk-key">(${escapeHtml(u.value)})</span>`)
+        .join('、');
+      return `<li><span class="hk-badge">${escapeHtml(String(c.key).toUpperCase())}</span> 被 ${c.users.length} 处同时占用：${users}</li>`;
+    }).join('');
+    box.innerHTML =
+      `<div><strong>发现 ${conflicts.length} 处热键冲突</strong>：同一按键被多处占用时，只有最先注册的功能生效，其余会被静默忽略。建议为上表冲突项分别改为不同按键。</div>`
+      + `<ul class="hk-list">${items}</ul>`;
+  } catch (err) {
+    box.hidden = false;
+    box.className = 'hotkey-conflict-result warn';
+    box.textContent = `热键检测失败: ${err.message}`;
+  }
+}
+
 export function bindParamsActions() {
   q('#btnReloadParams').addEventListener('click', () => {
     renderGlobalParams()
       .then(() => showToast('参数已刷新'))
       .catch((err) => showToast(err.message));
   });
+
+  const conflictBtn = q('#btnCheckHotkeyConflicts');
+  if (conflictBtn) {
+    conflictBtn.addEventListener('click', () => {
+      checkHotkeyConflicts().catch((err) => showToast(err.message));
+    });
+  }
 
   q('#btnSaveParamsTop').addEventListener('click', () => {
     saveGlobalParams().catch((err) => showToast(err.message));

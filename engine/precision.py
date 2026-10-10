@@ -265,20 +265,232 @@ def _get_compensator():
         _comp_local.comp = AdaptiveCompensator(alpha=0.04, warmup=30)
     return _comp_local.comp
 
+# ==============================================================================
+# 进程/线程优先级档位
+# ------------------------------------------------------------------------------
+# 原实现只有 boost_process_priority()，把整个进程抬到 HIGH_PRIORITY_CLASS，
+# 且全仓库没有任何恢复调用 —— 一旦跑过一次宏，WebUI 进程（含 OCR、截图线程、
+# 监视器轮询）会永久以高优先级运行，直接和游戏抢 CPU。这与"不抢占游戏资源"
+# 的需求正面冲突。这里改为「档位 + 记住原始值 + 可恢复」。
+# ==============================================================================
+PROCESS_PRIORITY_TIERS = {
+    "idle": 0x00000040,          # IDLE_PRIORITY_CLASS
+    "below": 0x00004000,         # BELOW_NORMAL_PRIORITY_CLASS
+    "normal": 0x00000020,        # NORMAL_PRIORITY_CLASS
+    "above": 0x00008000,         # ABOVE_NORMAL_PRIORITY_CLASS
+    "high": 0x00000080,          # HIGH_PRIORITY_CLASS
+    "realtime": 0x00000100,      # REALTIME_PRIORITY_CLASS
+}
+
+THREAD_PRIORITY_TIERS = {
+    "idle": -15,
+    "lowest": -2,
+    "below": -1,
+    "normal": 0,
+    "above": 1,
+    "highest": 2,
+    "time_critical": 15,
+}
+
+_original_process_priority = None
+_original_thread_priority = None
+_priority_lock = threading.Lock()
+
+
+def _decl(fn, restype, argtypes):
+    try:
+        fn.restype = restype
+        fn.argtypes = argtypes
+    except Exception:
+        pass
+
+
+# ctypes 默认把返回值当 c_int 且参数按 int 传入。64 位下 GetCurrentProcess()
+# 返回的句柄会被截断，GetPriorityClass 因此失败返回 0（0 不是合法的优先级类，
+# 会被误当成 IDLE 记进 _original_process_priority）。显式声明签名修正该问题。
+_decl(kernel32.GetCurrentProcess, wintypes.HANDLE, [])
+_decl(kernel32.GetPriorityClass, wintypes.DWORD, [wintypes.HANDLE])
+_decl(kernel32.SetPriorityClass, wintypes.BOOL, [wintypes.HANDLE, wintypes.DWORD])
+_decl(kernel32.GetCurrentThread, wintypes.HANDLE, [])
+_decl(kernel32.GetThreadPriority, ctypes.c_int, [wintypes.HANDLE])
+_decl(kernel32.SetThreadPriority, wintypes.BOOL, [wintypes.HANDLE, ctypes.c_int])
+
+# 线程亲和性：DWORD_PTR 在 64 位下是 64 位宽，必须显式声明签名，否则
+#   · 参数按 32 位 int 传入 —— GetCurrentThread() 返回的 0xFFFF...FFFE 会直接抛
+#     `ArgumentError argument 1: OverflowError: int too long to convert`；
+#   · 返回值按 c_int 接收 —— 失败(=0)与「原掩码恰好 0」无法区分。
+# 两者叠加的结果：64 位下绑核要么报错，要么静默失效。
+# c_size_t 即 DWORD_PTR。
+_decl(kernel32.SetThreadAffinityMask, ctypes.c_size_t,
+      [wintypes.HANDLE, ctypes.c_size_t])
+_decl(kernel32.GetProcessAffinityMask, wintypes.BOOL,
+      [wintypes.HANDLE, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)])
+
+
+def get_process_priority():
+    try:
+        return int(kernel32.GetPriorityClass(kernel32.GetCurrentProcess()))
+    except Exception:
+        return 0
+
+
+def set_process_priority_tier(tier="above"):
+    """设置进程优先级档位。首次调用会记住原始值，供 restore 使用。"""
+    global _original_process_priority
+    cls = PROCESS_PRIORITY_TIERS.get(str(tier).lower())
+    if cls is None:
+        return False
+    with _priority_lock:
+        try:
+            if _original_process_priority is None:
+                cur = get_process_priority()
+                if cur:
+                    _original_process_priority = cur
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), cls)
+            return True
+        except Exception:
+            return False
+
+
+def restore_process_priority():
+    """恢复进程优先级到本进程首次被修改前的值。"""
+    global _original_process_priority
+    with _priority_lock:
+        if _original_process_priority is None:
+            return False
+        try:
+            kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), _original_process_priority)
+            return True
+        except Exception:
+            return False
+
+
+def set_thread_priority_tier(tier="time_critical"):
+    """设置当前线程优先级档位。首次调用会记住原始值。"""
+    global _original_thread_priority
+    val = THREAD_PRIORITY_TIERS.get(str(tier).lower())
+    if val is None:
+        return False
+    with _priority_lock:
+        try:
+            if _original_thread_priority is None:
+                _original_thread_priority = int(
+                    kernel32.GetThreadPriority(kernel32.GetCurrentThread())
+                )
+            kernel32.SetThreadPriority(kernel32.GetCurrentThread(), val)
+            return True
+        except Exception:
+            return False
+
+
+def restore_thread_priority():
+    global _original_thread_priority
+    with _priority_lock:
+        if _original_thread_priority is None:
+            return False
+        try:
+            kernel32.SetThreadPriority(kernel32.GetCurrentThread(), _original_thread_priority)
+            return True
+        except Exception:
+            return False
+
+
 def boost_process_priority():
-    kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00000080)
+    # 兼容旧调用：语义等价但会被记账，之后可用 restore_process_priority() 还原。
+    return set_process_priority_tier("high")
+
 
 def boost_thread_priority():
-    kernel32.SetThreadPriority(kernel32.GetCurrentThread(), 15)
+    return set_thread_priority_tier("time_critical")
+
+# 单个处理器组最多 64 个逻辑处理器；SetThreadAffinityMask 的掩码也受此限制。
+_MAX_CORES_PER_GROUP = 64
+_affinity_warned = set()
+_affinity_warn_lock = threading.Lock()
+
+
+def _affinity_warn(msg):
+    """同一条警告只打印一次，避免每个线程/每次循环刷屏。"""
+    with _affinity_warn_lock:
+        if msg in _affinity_warned:
+            return
+        _affinity_warned.add(msg)
+    print(f"[绑核] {msg}")
+
+
+def get_logical_cpu_count():
+    import os
+    return max(1, min(int(os.cpu_count() or 1), _MAX_CORES_PER_GROUP))
+
+
+def get_process_affinity_mask():
+    """返回 (进程允许的掩码, 系统掩码)；取不到时返回 (None, None)。"""
+    try:
+        proc_mask = ctypes.c_size_t()
+        sys_mask = ctypes.c_size_t()
+        ok = kernel32.GetProcessAffinityMask(
+            kernel32.GetCurrentProcess(),
+            ctypes.byref(proc_mask), ctypes.byref(sys_mask))
+        if ok:
+            return proc_mask.value, sys_mask.value
+    except Exception:
+        pass
+    return None, None
+
 
 def set_thread_affinity(core_index=3):
-    kernel32.SetThreadAffinityMask(kernel32.GetCurrentThread(), 1 << core_index)
+    """把当前线程绑定到指定逻辑核心。
+
+    返回 bool（不再静默成功）：
+      · 索引非法 / 不在进程亲和集合内 / 系统调用失败 → False
+      · 成功 → True
+    调用方可用返回值决定是否打印“已绑核”，避免失败也报成功。
+    """
+    try:
+        core_index = int(core_index)
+    except (TypeError, ValueError):
+        _affinity_warn("核心索引非法: {!r}".format(core_index))
+        return False
+
+    num_cores = get_logical_cpu_count()
+    if core_index < 0 or core_index >= num_cores:
+        _affinity_warn("核心索引 {} 超出可用范围 [0, {})，本次不绑核".format(core_index, num_cores))
+        return False
+
+    mask = 1 << core_index
+    proc_mask, _ = get_process_affinity_mask()
+    if proc_mask and not (mask & proc_mask):
+        _affinity_warn("CPU{} 不在进程允许的核心集合内(0x{:X})，本次不绑核".format(core_index, proc_mask))
+        return False
+
+    try:
+        prev = kernel32.SetThreadAffinityMask(kernel32.GetCurrentThread(), mask)
+    except Exception as e:
+        _affinity_warn("绑定 CPU{} 异常: {}".format(core_index, e))
+        return False
+
+    if not prev:
+        _affinity_warn("绑定 CPU{} 失败(SetThreadAffinityMask 返回 0)".format(core_index))
+        return False
+    return True
+
 
 def clear_thread_affinity():
-    import os
-    num_cores = os.cpu_count() or 4
-    mask = (1 << num_cores) - 1
-    kernel32.SetThreadAffinityMask(kernel32.GetCurrentThread(), mask)
+    """解除绑定，恢复为「进程允许的全部核心」。
+
+    用进程亲和掩码而不是 (1<<cpu_count)-1 —— 后者在进程本身被限制过核心
+    （如通过任务管理器设置过亲和性、或跨处理器组）时会把线程放到不允许的核上。
+    """
+    proc_mask, _ = get_process_affinity_mask()
+    mask = proc_mask or ((1 << get_logical_cpu_count()) - 1)
+    if not mask:
+        return False
+    try:
+        prev = kernel32.SetThreadAffinityMask(kernel32.GetCurrentThread(), mask)
+        return bool(prev)
+    except Exception as e:
+        _affinity_warn("解除绑核异常: {}".format(e))
+        return False
 
 def get_system_cpu_info():
     import os

@@ -189,6 +189,28 @@ PARAM_DOCS = {
 
 PARAM_SCHEMA = {
     "executor": {
+        "PRECISION_PROFILE": {
+            "type": "str",
+            "label": "精度/占用档位",
+            "tier": "basic",
+            "options": ["latency_first", "balanced", "cpu_saver", "custom"],
+            "display_names": {"latency_first": "延迟优先(最低延迟/占用高)", "balanced": "均衡(推荐)", "cpu_saver": "低占用(把CPU让给游戏)", "custom": "自定义(不联动下方开关)"},
+            "hint": "延迟优先=最低延迟(占用高)｜均衡=推荐｜低占用=把CPU让给游戏｜自定义=不覆盖下方开关",
+        },
+        "PROCESS_PRIORITY_TIER": {
+            "type": "str",
+            "label": "进程优先级档位",
+            "tier": "advanced",
+            "options": ["idle", "below", "normal", "above", "high", "realtime"],
+            "display_names": {"idle": "空闲(最低)", "below": "低于正常", "normal": "正常(系统默认)", "above": "高于正常", "high": "高(易抢占游戏)", "realtime": "实时(最高/慎用)"},
+            "hint": "优先级越高越容易抢占游戏CPU。realtime/high 仅在极端场景使用，且可被恢复。",
+        },
+        "DETECTION_FRAME_CACHE_TTL_MS": {
+            "type": "float",
+            "label": "共享帧缓存有效期(ms)",
+            "tier": "advanced",
+            "hint": "同一循环迭代内多个检测节点复用一次截图的上限时间。0=使用档位默认值。",
+        },
         "GLOBAL_PAUSE_TOGGLE_KEY": {"type": "str", "label": "全局暂停切换键", "tier": "basic"},
         "STOP_MACRO_KEY": {"type": "str", "label": "全局终止键", "tier": "basic"},
         "MACRO_RELOAD_KEY": {"type": "str", "label": "宏重载键", "tier": "advanced", "hint": "为空表示关闭"},
@@ -250,6 +272,7 @@ PARAM_SCHEMA = {
             "label": "时间线模式",
             "tier": "basic",
             "options": ["absolute", "relative_compensated"],
+            "display_names": {"absolute": "绝对时间线(高精度)", "relative_compensated": "相对补偿(低占用)"},
         },
         "ABSOLUTE_TIMELINE_ALLOW_EARLY_MS": {
             "type": "float",
@@ -432,28 +455,34 @@ PARAM_SCHEMA = {
             "type": "bool",
             "label": "长宏长尾优化·PRIORITY 组",
             "tier": "advanced",
-            "hint": "REALTIME_PRIORITY_CLASS + 进程/线程 priority boost 禁用, 防 OS 调度抢占导致长尾; 实测对长间隔(300ms+)长尾优化显著",
+            "hint": "REALTIME_PRIORITY_CLASS + 进程/线程 priority boost 禁用（只作用于 standby 工作线程）。"
+                    "实测：短间隔(10ms) p999 -92%，长间隔(300ms+) p999 -99%，收益最大。"
+                    "注意：游戏吃满全核时 REALTIME 可能饿死游戏，建议同时开启绑核隔离。",
             "depends_on": [{"section": "executor", "key": "ENABLE_STANDBY_ENGINE", "value": True}],
         },
         "STANDBY_PS_TIMER": {
             "type": "bool",
             "label": "长宏长尾优化·TIMER 组",
             "tier": "advanced",
-            "hint": "NtSetTimerResolution(0.5ms) + timeBeginPeriod(1), 提升唤醒精度; 对短宏(10~100ms)甜区优化显著",
+            "hint": "NtSetTimerResolution(0.5ms) + timeBeginPeriod(1)。"
+                    "实测：短间隔 p999 -76%，长间隔 p999 -99%。"
+                    "代价：全局时钟精度提高到 0.5ms，功耗略增。",
             "depends_on": [{"section": "executor", "key": "ENABLE_STANDBY_ENGINE", "value": True}],
         },
         "STANDBY_PS_MMCSS": {
             "type": "bool",
             "label": "长宏长尾优化·MMCSS 组",
             "tier": "advanced",
-            "hint": "AvSetMmThreadCharacteristics(Pro Audio) 绕过普通调度; 建议与 PRIORITY 组同开关, 单独使用在长间隔下可能不稳定",
+            "hint": "AvSetMmThreadCharacteristics(Pro Audio)。⚠ 必须与 PRIORITY 组同开："
+                    "单独开启时短间隔有效(-80%)但长间隔(300ms+)会灾难性劣化(+679%)；"
+                    "与 PRIORITY 配对后长间隔 -98%。关闭 PRIORITY 时请一并关闭本项。",
             "depends_on": [{"section": "executor", "key": "ENABLE_STANDBY_ENGINE", "value": True}],
         },
         "STANDBY_PS_POWER": {
             "type": "bool",
             "label": "长宏长尾优化·POWER 组",
             "tier": "advanced",
-            "hint": "SetProcessInformation(PowerThrottling) 禁用, 防 Win11 节流",
+            "hint": "SetProcessInformation(PowerThrottling) 禁用，防 Win11 EcoQoS 降频/降定时器精度。建议开启。",
             "depends_on": [{"section": "executor", "key": "ENABLE_STANDBY_ENGINE", "value": True}],
         },
         "RTSS_ENABLED": {
@@ -488,6 +517,7 @@ PARAM_SCHEMA = {
             "label": "启动监听时 RTSS 检测",
             "tier": "basic",
             "options": ["off", "detect_only", "detect_and_wait_2_frames"],
+            "display_names": {"off": "不检测", "detect_only": "仅读连接状态", "detect_and_wait_2_frames": "检测并实测等待2帧耗时"},
             "hint": "点击启动全局宏监听时检测 RTSS 连接状态并报告",
             "depends_on": [{"section": "executor", "key": "RTSS_ENABLED", "value": True}],
         },
@@ -496,7 +526,7 @@ PARAM_SCHEMA = {
             "type": "str",
             "label": "未开放: 测试输出模式",
             "tier": "debug",
-            "options": ["final", "realtime"],
+            "options": ["final", "realtime"], "display_names": {"final": "结束时输出", "realtime": "实时输出"},
             "depends_on": [{"section": "executor", "key": "ENABLE_TEST_TRACE", "value": True}],
         },
         "ALLOW_LOCK_STYLE_KEY_LONG_PRESS": {"type": "bool", "label": "未开放: 锁定键长按模式", "tier": "debug"},
@@ -507,7 +537,7 @@ PARAM_SCHEMA = {
         "ENABLE_RECORD_HOTKEY_ACTIONS": {"type": "bool", "label": "启用录制快捷键动作", "tier": "basic"},
         "ENABLE_RECORD_ACTIONS": {"type": "bool", "label": "录制键鼠动作", "tier": "basic"},
         "ENABLE_RECORD_TRACK": {"type": "bool", "label": "录制鼠标轨迹", "tier": "basic"},
-        "START_MODE": {"type": "str", "label": "录制启动模式", "tier": "basic", "options": ["delayed", "first_event"]},
+        "START_MODE": {"type": "str", "label": "录制启动模式", "tier": "basic", "options": ["delayed", "first_event"], "display_names": {"delayed": "按键后延时启动", "first_event": "首个有效事件触发启动"}},
         "START_DELAY_SECONDS": {
             "type": "float",
             "label": "延时启动秒数",
@@ -647,7 +677,7 @@ PARAM_SCHEMA = {
         "OUTPUT_BASE_NAME": {"type": "str", "label": "录制输出基础名", "tier": "basic"},
     },
     "simplify_tool": {
-        "SCENE_PRESET": {"type": "str", "label": "离线预设", "tier": "basic", "options": ["fps", "desktop", "rpg3d", "custom"]},
+        "SCENE_PRESET": {"type": "str", "label": "离线预设", "tier": "basic", "options": ["fps", "desktop", "rpg3d", "custom"], "display_names": {"fps": "FPS 射击", "desktop": "桌面操作", "rpg3d": "3D RPG", "custom": "自定义"}},
         "CUSTOM_CFG.pipeline": {"type": "list", "label": "自定义化简流水线", "tier": "advanced"},
         "CUSTOM_CFG.rdp_epsilon": {"type": "float", "label": "自定义 RDP Epsilon", "tier": "advanced"},
         "CUSTOM_CFG.intent_angle_threshold_deg": {"type": "float", "label": "自定义意图角度阈值", "tier": "advanced"},

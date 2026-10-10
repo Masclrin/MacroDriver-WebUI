@@ -12,6 +12,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+# 宽松 JSON：容忍宏文件里多余的结尾逗号 / 元素间缺失的逗号 / 注释
+try:
+    from lenient_json import loads_lenient as _loads_lenient
+except Exception:  # noqa: BLE001
+    _loads_lenient = None
+
 RAZER_VK_CODE: dict[int, str] = {
     0x08: "backspace", 0x09: "tab", 0x0D: "enter", 0x10: "shift",
     0x11: "ctrl", 0x12: "alt", 0x13: "pause", 0x14: "caps_lock",
@@ -226,7 +232,7 @@ def detect_format_by_content(source: str) -> str | None:
 
     if stripped.startswith('['):
         try:
-            _probe = json.loads(stripped[:4000])
+            _probe = _loads_lenient(stripped[:4000]) if _loads_lenient is not None else json.loads(stripped[:4000])
         except Exception:
             _probe = None
         if isinstance(_probe, list) and _probe:
@@ -257,7 +263,10 @@ def _parse_jsonc_str(text: str) -> Any:
             if not in_str:
                 line = line[:comment_idx]
         stripped_lines.append(line)
-    return json.loads('\n'.join(stripped_lines))
+    clean = '\n'.join(stripped_lines)
+    if _loads_lenient is not None:
+        return _loads_lenient(clean)
+    return json.loads(clean)
 
 
 _GENERIC_KEY_MAP: dict[str, str] = {
@@ -3178,6 +3187,8 @@ def _load_json_with_comments(path: Path) -> list[Any]:
                 line = line[:comment_idx]
         stripped_lines.append(line)
     clean = '\n'.join(stripped_lines)
+    if _loads_lenient is not None:
+        return _loads_lenient(clean)
     return json.loads(clean)
 
 

@@ -8,7 +8,7 @@ from automation.engine import (
 from automation.compiler import ExecNode
 from automation.engine import ExecContext
 from automation.handlers.variable import _extract_var_name
-from automation.handlers.detection import _parse_target_color
+from automation.handlers.detection import _parse_target_color, _invalidate_frame
 
 from engine.precision import precise_sleep_v5 as precise_sleep, set_thread_affinity, clear_thread_affinity
 
@@ -76,7 +76,7 @@ def _monitor_check_ocr(node, ctx):
             match_number=match_number,
             cache_key=node.id,
             last_image=ctx.safe_get_cache(node.id),
-            cache_strategy=params.get("cache_strategy", "time_interval"),
+            cache_strategy=params.get("cache_strategy", "disabled"),
             cache_interval_ms=int(_resolve_value(params.get("cache_interval_ms", 100), ctx)),
         )
 
@@ -183,11 +183,21 @@ def _handle_monitor_node(node: ExecNode, ctx: ExecContext):
         while not trigger_event.is_set() and not ctx.stop_event.is_set():
             if branch_stop and branch_stop.is_set():
                 break
+            # 暂停期间不再截图/识别。
+            # 设计文档曾把"监视器不响应暂停"记为有意设计，但本项目的使用场景要求
+            # 尽量少占游戏 CPU：暂停时仍以 interval 频率跑 OCR（单次约 190ms）
+            # 会白白吃掉一个核心。检测类节点都传了 pause_event，这里对齐。
+            if ctx.pause_event.is_set() or (branch_ctx is not None and branch_ctx.pause_event.is_set()):
+                ctx.stop_event.wait(timeout=0.05)
+                continue
             now = time.perf_counter()
             if now - last_check < interval:
                 ctx.stop_event.wait(timeout=0.001)
                 continue
             last_check = now
+            # 监视器是"实时盯屏"的：每次实际检测都强制取新帧，
+            # 避免共享帧缓存在高频 interval 下连续命中同一帧而漏掉瞬时状态变化。
+            _invalidate_frame(ctx)
 
             try:
                 found = False

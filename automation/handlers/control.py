@@ -6,6 +6,7 @@ import json
 
 from automation.engine import (
     _resolve_value, _execute_flow, _execute_node, _get_old_engine,
+    _execute_flow_guarded,
     _collect_flow_descendants, _reset_body_nodes, _cancel_child_scopes,
     _get_pause_event,
 )
@@ -63,13 +64,27 @@ def _handle_if_else(node: ExecNode, ctx: ExecContext):
         _execute_flow(node.id, "false", ctx)
 
 
+def _branch_stopped(ctx: ExecContext) -> bool:
+    """分支是否已被取消。
+
+    stop_branch / Race cancel_on_first / Join cancel_others 都是通过设置
+    分支自己的 stop_event 实现的，但 loop_while、wait_cond、seq_check、
+    state_machine 等带轮询的节点只检查全局 ctx.stop_event，
+    导致取消信号对这些节点完全无效 —— 分支会一直轮转到超时或最大次数。
+    """
+    if ctx.stop_event.is_set():
+        return True
+    bctx = ctx._get_current_branch_ctx()
+    return bool(bctx is not None and bctx.stop_event.is_set())
+
+
 def _handle_loop_count(node: ExecNode, ctx: ExecContext):
     count = int(_resolve_value(node.params.get("count", 1), ctx))
     counter_var = node.params.get("counter_var", "")
     body_nodes = _collect_flow_descendants(ctx.graph, node.id, "body")
 
     for i in range(count):
-        if ctx.stop_event.is_set():
+        if _branch_stopped(ctx):
             return
         if i > 0:
             _reset_body_nodes(body_nodes, ctx)
@@ -86,7 +101,7 @@ def _handle_loop_while(node: ExecNode, ctx: ExecContext):
     body_nodes = _collect_flow_descendants(ctx.graph, node.id, "body")
 
     for i in range(max_iter):
-        if ctx.stop_event.is_set():
+        if _branch_stopped(ctx):
             return
 
         if check_at == "start":
@@ -248,7 +263,9 @@ def _handle_call_script_async(node: ExecNode, ctx: ExecContext):
             if hasattr(ctx, '_event_queue') and ctx._event_queue is not None:
                 ctx._event_queue.put(("execute_flow", async_node_id, flow_name))
             else:
-                _execute_flow(async_node_id, flow_name, ctx)
+                # 运行在 TaskPool 工作线程上：goto 信号是 BaseException，
+                # 若不用 guarded 版本会把工作线程静默打死。
+                _execute_flow_guarded(async_node_id, flow_name, ctx)
         except Exception as e:
             print(f"[异步宏] on_task_complete 执行异常: {e}")
 
@@ -271,7 +288,7 @@ def _handle_wait_cond(node: ExecNode, ctx: ExecContext):
 
     deadline = time.time() + timeout_ms / 1000.0
     while time.time() < deadline:
-        if ctx.stop_event.is_set():
+        if _branch_stopped(ctx):
             return
         _re_execute_condition_sources(node, ctx)
         data_sources = node.get_data_inputs("cond")
@@ -297,13 +314,31 @@ def _handle_goto(node: ExecNode, ctx: ExecContext):
 
 
 def _handle_seq_check(node: ExecNode, ctx: ExecContext):
+    """多条件检测：等所有接入的条件同时为真才走 pass，否则按重试/超时走 fail。
+
+    注意：本节点是"汇合门闸"（AND），不是"按顺序逐个检测"。
+    """
     retry = node.params.get("retry", True)
     max_retries = int(_resolve_value(node.params.get("max_retries", 100), ctx))
-    poll_interval = int(_resolve_value(node.params.get("poll_interval_ms", 100), ctx)) / 1000.0
+    poll_interval = max(0.001, int(_resolve_value(node.params.get("poll_interval_ms", 100), ctx)) / 1000.0)
+    # timeout_ms > 0 时以其为总超时；否则用"最大重试次数 × 轮询间隔"作为超时
+    timeout_ms = float(_resolve_value(node.params.get("timeout_ms", 0), ctx))
+
+    # 没接任何条件时永远不可能满足：直接报错走 fail，避免用户白等 10 秒
+    if not node.get_data_inputs("cond"):
+        ctx.log_error(
+            "多条件检测: 未连接任何条件(cond)端口，已直接判失败。"
+            "请把检测节点的 result 连到 cond 端口",
+            node_id=node.id, error_type="param",
+        )
+        _execute_flow(node.id, "fail", ctx)
+        return
+
+    deadline = (time.time() + timeout_ms / 1000.0) if timeout_ms > 0 else None
     attempts = 0
 
     while True:
-        if ctx.stop_event.is_set():
+        if _branch_stopped(ctx):
             return
         _re_execute_condition_sources(node, ctx)
         data_sources = node.get_data_inputs("cond")
@@ -313,45 +348,98 @@ def _handle_seq_check(node: ExecNode, ctx: ExecContext):
             _execute_flow(node.id, "pass", ctx)
             return
         attempts += 1
-        if not retry or attempts >= max_retries:
+        timed_out = deadline is not None and time.time() >= deadline
+        if not retry or attempts >= max_retries or timed_out:
             _execute_flow(node.id, "fail", ctx)
             return
         precise_sleep(poll_interval, ctx.stop_event, pause_event=_get_pause_event(ctx))
 
 
 def _handle_state_machine(node: ExecNode, ctx: ExecContext):
+    """状态机：按 stages 列表逐个"阶段"推进，每个阶段用 cond 判定能否前进。
+
+    语义（已修正/明确）：
+      - cond 为真   → 进入下一阶段
+      - cond 为假   → 若 fail_state 命中某阶段则回退到该阶段；留空则停在当前阶段继续等待
+      - 每次判定之间固定 sleep poll_interval（修复此前 cond 为假时忙等 100% CPU 的问题）
+      - stage_timeout_ms > 0 时，某阶段等待超时按"失败"处理（回退/前进）
+      - 未连接 cond 端口时不再无限死等，直接报错并走 done
+    """
     states_str = _resolve_value(node.params.get("states", ""), ctx)
     fail_state = _resolve_value(node.params.get("fail_state", ""), ctx)
-    poll_interval = int(_resolve_value(node.params.get("poll_interval_ms", 100), ctx)) / 1000.0
+    poll_interval = max(0.001, int(_resolve_value(node.params.get("poll_interval_ms", 100), ctx)) / 1000.0)
+    stage_timeout_ms = float(_resolve_value(node.params.get("stage_timeout_ms", 0), ctx))
 
-    if not states_str:
+    states = [s.strip() for s in states_str.split("→") if s.strip()]
+    if not states:
+        ctx.log_warning("状态机: 状态列表为空，已直接放行", node_id=node.id)
         _execute_flow(node.id, "done", ctx)
         return
 
-    states = [s.strip() for s in states_str.split("→") if s.strip()]
+    # 校验失败回退阶段名，避免填错时静默按"前进"处理
+    fail_idx = None
+    if fail_state:
+        for i, s in enumerate(states):
+            if s == fail_state:
+                fail_idx = i
+                break
+        if fail_idx is None:
+            ctx.log_warning(
+                f"状态机: 失败回退阶段「{fail_state}」不在状态列表中，该设置已被忽略",
+                node_id=node.id,
+            )
+
+    # 未连接条件 → 以前会永久 sleep 轮询（表现为"卡死"）；现在明确报错并放行
+    if not node.get_data_inputs("cond"):
+        ctx.log_error(
+            "状态机: 未连接条件(cond)端口，已直接跳过。"
+            "请把检测节点的 result 连到 cond 端口",
+            node_id=node.id, error_type="param",
+        )
+        _execute_flow(node.id, "done", ctx)
+        return
+
+    def _reset_deadline():
+        return (time.time() + stage_timeout_ms / 1000.0) if stage_timeout_ms > 0 else None
+
     current = 0
+    stage_deadline = _reset_deadline()
 
     while current < len(states):
-        if ctx.stop_event.is_set():
+        if _branch_stopped(ctx):
             return
         _re_execute_condition_sources(node, ctx)
         data_sources = node.get_data_inputs("cond")
         conditions = [ctx.check_results.get(f"{src['source_node_id']}.{src['source_port']}", False)
                       for src in data_sources]
-        cond_val = all(conditions) if conditions else None
-        if cond_val is True:
+        cond_val = all(conditions) if conditions else False
+
+        if cond_val:
+            # 条件满足 → 立即进入下一阶段（不额外 sleep，避免拖慢推进）
             current += 1
-        elif cond_val is False and fail_state:
-            fail_idx = None
-            for i, s in enumerate(states):
-                if s.strip() == fail_state:
-                    fail_idx = i
-                    break
-            if fail_idx is not None:
+            stage_deadline = _reset_deadline()
+            continue
+
+        if stage_deadline is not None and time.time() >= stage_deadline:
+            # 阶段超时，按"失败"处理：
+            # 能回退到"别的"阶段就回退，否则前进 —— 保证超时一定取得进展、不会死循环
+            ctx.log_warning(
+                f"状态机: 阶段「{states[current]}」等待超时",
+                node_id=node.id,
+            )
+            if fail_idx is not None and fail_idx != current:
                 current = fail_idx
             else:
                 current += 1
-        else:
+            stage_deadline = _reset_deadline()
+        elif fail_idx is not None and fail_idx != current:
+            # 条件不满足且配置了失败回退（且不是当前阶段）→ 回到该阶段
+            current = fail_idx
+            stage_deadline = _reset_deadline()
+        # else: 条件不满足且无有效回退 → 停在当前阶段继续轮询等待（保留 deadline，超时仍可触发）
+
+        # 固定步进式轮询：等待类分支一律 sleep，杜绝忙等 100% CPU
+        if current < len(states) and not _branch_stopped(ctx):
             precise_sleep(poll_interval, ctx.stop_event, pause_event=_get_pause_event(ctx))
 
     _execute_flow(node.id, "done", ctx)
@@ -366,6 +454,24 @@ def _parse_affinity_config(param_val):
         return json.loads(param_val)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _pick_branch_core(branch_index: int):
+    """为并发分支选择一个实际存在的核心。
+
+    原先硬编码 4 + index：4 核机器上 branch0 算出核心 4（不存在），
+    6 核机器上 branch2 算出核心 6 越界；SetThreadAffinityMask 失败后被
+    except 静默吞掉，用户以为绑了核其实没有。
+    改为按实际 CPU 拓扑从末尾倒序分配（末尾核心通常最少被系统中断占用），
+    并与旧引擎 _pick_core_for_macro 的倒序策略保持一致，避免两套逻辑抢同一批核。
+    """
+    import os
+    total = int(os.cpu_count() or 4)
+    idx = int(branch_index or 0)
+    core = total - 1 - idx
+    if core < 0:
+        core = idx % max(1, total)
+    return core
 
 
 def _handle_fork(node: ExecNode, ctx: ExecContext):
@@ -426,7 +532,7 @@ def _handle_fork(node: ExecNode, ctx: ExecContext):
         if affinity_config and affinity_config.get("enabled"):
             core_index = affinity_config.get("core", -1)
             if core_index == -1:
-                core_index = 4 + branch_info["index"]
+                core_index = _pick_branch_core(branch_info["index"])
 
         def branch_worker(bid, bctx, port_name, core_idx):
             if core_idx is not None:
@@ -443,8 +549,12 @@ def _handle_fork(node: ExecNode, ctx: ExecContext):
             try:
                 ctx._set_branch_id(bid)
                 ctx._set_current_affinity(core_idx)
-                _execute_flow(node.id, port_name, ctx)
-                bctx.set_status("completed")
+                _execute_flow_guarded(node.id, port_name, ctx)
+                # 被取消的分支不能覆写为 completed：
+                # Join 会把已取消分支当成"已到达"而提前放行，
+                # Race 里被取消的分支甚至能"赢得"竞赛。
+                if bctx.status == "running":
+                    bctx.set_status("completed")
             except Exception as e:
                 print(f"[Fork] 分支 {bid} 执行异常: {e}")
                 bctx.set_status("error")
@@ -757,7 +867,7 @@ def _handle_race(node: ExecNode, ctx: ExecContext):
         if affinity_config and affinity_config.get("enabled"):
             core_index = affinity_config.get("core", -1)
             if core_index == -1:
-                core_index = 4 + branch_info["index"]
+                core_index = _pick_branch_core(branch_info["index"])
 
         def race_worker(bid, bctx, port_name, core_idx):
             if core_idx is not None:
@@ -774,7 +884,7 @@ def _handle_race(node: ExecNode, ctx: ExecContext):
             try:
                 ctx._set_branch_id(bid)
                 ctx._set_current_affinity(core_idx)
-                _execute_flow(node.id, port_name, ctx)
+                _execute_flow_guarded(node.id, port_name, ctx)
                 bctx.set_status("completed")
             except Exception as e:
                 print(f"[Race] 分支 {bid} 执行异常: {e}")

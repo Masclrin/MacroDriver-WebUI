@@ -134,6 +134,27 @@ def set_cursor_pos(x, y):
     user32.SetCursorPos(int(x), int(y))
 
 
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def get_cursor_pos():
+    """返回当前光标位置 (x, y)；失败时返回 (0, 0)。
+
+    move_to 需要从当前位置插值到目标点，缺少这个原语会导致
+    第一步把光标瞬移到屏幕左上角附近。
+    """
+    try:
+        user32.GetCursorPos.restype = ctypes.c_bool
+        user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
+        pt = _POINT()
+        if user32.GetCursorPos(ctypes.byref(pt)):
+            return int(pt.x), int(pt.y)
+    except Exception:
+        pass
+    return 0, 0
+
+
 def send_scroll_sendinput(delta):
     user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, int(delta), 0)
 

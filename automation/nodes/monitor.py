@@ -50,7 +50,7 @@ def register(registry):
             "match_text": {"type": "string", "default": "", "description": "匹配文本(留空=仅识别)", "varRef": True},
             "match_mode": {"type": "string", "enum": ["contain", "exact", "regex", "number_gt", "number_lt", "number_eq"], "default": "contain", "description": "匹配模式", "display_names": {"contain": "包含(模糊)", "exact": "完全匹配(精确)", "regex": "正则表达式", "number_gt": "数值大于", "number_lt": "数值小于", "number_eq": "数值等于"}},
             "match_number": {"type": "number", "default": 0, "description": "比较数值", "showWhen": "match_mode=number_gt,number_lt,number_eq", "varRef": True},
-            "cache_strategy": {"type": "string", "enum": ["frame_diff", "time_interval", "disabled"], "default": "time_interval", "description": "缓存策略(减少重复识别)", "display_names": {"frame_diff": "帧差检测(变化时重识)", "time_interval": "时间间隔缓存", "disabled": "禁用缓存(每次都识)"}},
+            "cache_strategy": {"type": "string", "enum": ["frame_diff", "time_interval", "disabled"], "default": "disabled", "description": "缓存策略(减少重复识别)", "display_names": {"frame_diff": "帧差检测(变化时重识)", "time_interval": "时间间隔缓存", "disabled": "禁用缓存(每次都识)"}},
             "cache_interval_ms": {"type": "number", "default": 100, "description": "缓存间隔(ms)", "showWhen": "cache_strategy=time_interval", "varRef": True},
             "ocr_engine": {"type": "string", "enum": ["rapidocr_onnx"], "default": "rapidocr_onnx", "description": "OCR引擎(当前仅RapidOCR)", "display_names": {"rapidocr_onnx": "RapidOCR (ONNX)"}},
             "ocr_preload": {"type": "boolean", "default": True, "description": "启动时预加载OCR模型(避免首次调用卡顿)", "display_names": {"true": "是(推荐)", "false": "否"}},

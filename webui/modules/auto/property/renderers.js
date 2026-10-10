@@ -89,6 +89,12 @@ window.AutomationProperty._renderGroup = function(groupName, paramEntries, node)
             case 'var_list':
                 html += this._renderVarListField(key, schema, val, node);
                 break;
+            case 'stage_list':
+                html += this._renderStageListField(key, schema, val, node);
+                break;
+            case 'stage_ref':
+                html += this._renderStageRefField(key, schema, val, node);
+                break;
             case 'affinity':
                 html += this._renderAffinityField(key, schema, val, node);
                 break;
@@ -396,6 +402,67 @@ window.AutomationProperty._renderVarListField = function(key, schema, val, node)
         html += '<div style="padding:16px;text-align:center;color:var(--txt3,#94a3b8);font-size:12px">暂无变量，点击上方「添加」按钮新增</div>';
     }
     html += '</div></div>';
+    return html;
+};
+
+// ——— 状态机「阶段列表」可视化编辑器 ———
+// 存储格式仍是 "阶段A→阶段B→阶段C" 字符串（与后端/旧脚本完全兼容），
+// 只是给用户一个可增删、可排序的友好编辑界面，避免手写 → 分隔符。
+window.AutomationProperty._parseStageList = function(val) {
+    var arr = String(val === null || val === undefined ? '' : val).split('→');
+    var out = [];
+    for (var i = 0; i < arr.length; i++) {
+        var s = arr[i].trim();
+        if (s) out.push(s);
+    }
+    return out;
+};
+
+window.AutomationProperty._renderStageListField = function(key, schema, val, node) {
+    var stages = this._parseStageList(val);
+    var desc = schema.description ? '<div style="font-size:10px;color:var(--txt3);line-height:1.5;margin-top:4px">' + _pe(schema.description) + '</div>' : '';
+    var html = '<div class="prop-field stage-list-field" data-key="' + key + '">' +
+        '<label class="prop-field-label" style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+          '<span>' + (schema.label || key) + '</span>' +
+          '<button class="prop-btn outline" style="padding:2px 8px;font-size:11px" onclick="window.AutomationProperty._stageListAdd(this,' + node.id + ',\'' + key + '\')"><i class="fa-solid fa-plus"></i> 添加阶段</button>' +
+        '</label>';
+    html += '<div class="stage-list-items">';
+    for (var i = 0; i < stages.length; i++) {
+        html += '<div class="stage-list-row" data-index="' + i + '" style="display:flex;align-items:center;gap:4px;margin-bottom:4px">';
+        html += '<span style="width:18px;text-align:center;font-size:11px;color:var(--txt3);flex-shrink:0">' + (i + 1) + '</span>';
+        html += '<input type="text" data-subkey="stage" value="' + _pe(stages[i]) + '" placeholder="阶段名称" style="flex:1;padding:4px 6px;font-size:12px;border-radius:3px">';
+        html += '<button class="prop-btn outline" style="padding:4px 8px;font-size:11px;flex-shrink:0" onclick="window.AutomationProperty._stageListMove(this,' + node.id + ',\'' + key + '\',' + i + ',-1)" title="上移"' + (i === 0 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-up"></i></button>';
+        html += '<button class="prop-btn outline" style="padding:4px 8px;font-size:11px;flex-shrink:0" onclick="window.AutomationProperty._stageListMove(this,' + node.id + ',\'' + key + '\',' + i + ',1)" title="下移"' + (i === stages.length - 1 ? ' disabled' : '') + '><i class="fa-solid fa-arrow-down"></i></button>';
+        html += '<button class="prop-btn outline" style="padding:4px 8px;font-size:11px;color:#ef4444;flex-shrink:0" onclick="window.AutomationProperty._stageListRemove(this,' + node.id + ',\'' + key + '\',' + i + ')" title="删除此阶段"><i class="fa-solid fa-xmark"></i></button>';
+        html += '</div>';
+    }
+    if (stages.length === 0) {
+        html += '<div style="padding:14px;text-align:center;color:var(--txt3);font-size:12px">还没有阶段，点上方「添加阶段」新增（如：待机、攻击、冷却）</div>';
+    }
+    html += '</div>';
+    if (stages.length) {
+        html += '<div style="font-size:10px;color:var(--txt3);margin-top:2px">执行顺序：' + _pe(stages.join(' → ')) + '</div>';
+    }
+    html += desc + '</div>';
+    return html;
+};
+
+window.AutomationProperty._renderStageRefField = function(key, schema, val, node) {
+    var stages = this._parseStageList(node.properties.states);
+    var cur = (val === null || val === undefined) ? '' : String(val);
+    var desc = schema.description ? '<div style="font-size:10px;color:var(--txt3);line-height:1.5;margin-top:4px">' + _pe(schema.description) + '</div>' : '';
+    var html = '<div class="prop-field">' +
+        '<label class="prop-field-label">' + (schema.label || key) + '</label>' +
+        '<select data-key="' + key + '" data-type="stageRef">' +
+          '<option value=""' + (cur === '' ? ' selected' : '') + '>（不回退，停在当前阶段等待）</option>';
+    for (var i = 0; i < stages.length; i++) {
+        html += '<option value="' + _pe(stages[i]) + '"' + (cur === stages[i] ? ' selected' : '') + '>' + _pe(stages[i]) + '</option>';
+    }
+    html += '</select>';
+    if (cur && stages.indexOf(cur) < 0) {
+        html += '<div style="font-size:10px;color:#f59e0b;margin-top:2px">当前值「' + _pe(cur) + '」不在阶段列表中，运行时会被忽略</div>';
+    }
+    html += desc + '</div>';
     return html;
 };
 

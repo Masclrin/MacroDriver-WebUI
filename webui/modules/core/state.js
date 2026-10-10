@@ -3,6 +3,23 @@ export const state = {
   macroTree: { name: '宏', path: '宏', folders: [], files: [] },
   selectedMacro: null,
   editorRows: [],
+  // ── 宏编辑：标签(tab，不限数量) + 编辑小窗(view，最多 3 个) ──
+  // tab：{ id, path, rows, dirty, savedSnapshot }（rows 为内容真相源）
+  // view：{ id, el, listEl, titleEl, tabId, rows, selectedActionPath, selectedLineKind,
+  //         expandedLoopPathKeys:Set, inlineEditingPathKey }
+  editorTabs: [],
+  editorViews: [],
+  activeTabId: null,
+  focusedViewId: null,
+  editorTabSeq: 0,
+  editorViewSeq: 0,
+  draggedViewId: null,
+  draggedTabId: null,
+  draggedPaneId: null,
+  onViewRendered: null,
+  onFocusView: null,
+  getFocusedView: null,
+  findView: null,
   selectedActionPath: null,
   selectedLineKind: 'action',
   draggedActionPath: null,

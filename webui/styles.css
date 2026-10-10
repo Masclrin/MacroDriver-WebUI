@@ -97,6 +97,10 @@ body.automation-editor-fullscreen #automationFrame {
   gap: 12px;
 }
 
+.brand-text {
+  min-width: 0;
+}
+
 .brand-mark {
   width: 44px;
   height: 44px;
@@ -107,6 +111,16 @@ body.automation-editor-fullscreen #automationFrame {
   font-weight: 800;
   background: linear-gradient(135deg, var(--accent), var(--warn));
   color: #0c1a22;
+  /* 作为折叠开关：按钮化 */
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: width 160ms ease, height 160ms ease, font-size 160ms ease, border-radius 160ms ease;
+}
+.brand-mark:hover {
+  filter: brightness(1.08);
 }
 
 .brand h1 {
@@ -140,6 +154,23 @@ body.automation-editor-fullscreen #automationFrame {
   line-height: 1.2;
   min-height: 40px;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.tab-ico {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+.tab-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-btn:hover {
@@ -163,6 +194,63 @@ body.automation-editor-fullscreen #automationFrame {
   min-height: 36px;
   font-size: 15px;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.btn-ico {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.btn-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+/* ── 侧栏折叠态：整体收窄为图标快捷栏 ── */
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 56px 1fr;
+}
+.sidebar-collapsed .sidebar {
+  padding: 12px 7px;
+  gap: 8px;
+}
+.sidebar-collapsed .brand {
+  justify-content: center;
+}
+.sidebar-collapsed .brand-mark {
+  /* 与折叠态的 tab 快捷按钮保持一致（同高、同圆角） */
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  border-radius: 11px;
+}
+.sidebar-collapsed .brand-text {
+  display: none;
+}
+.sidebar-collapsed .tab-btn,
+.sidebar-collapsed .sidebar-foot button {
+  justify-content: center;
+  gap: 0;
+  padding: 6px 4px;
+}
+.sidebar-collapsed .tab-label,
+.sidebar-collapsed .btn-label {
+  display: none;
+}
+.sidebar-collapsed .tab-btn:hover {
+  transform: none;
+}
+.sidebar-collapsed .tab-ico,
+.sidebar-collapsed .btn-ico {
+  width: 21px;
+  height: 21px;
 }
 
 .main-panel {
@@ -175,24 +263,32 @@ body.automation-editor-fullscreen #automationFrame {
   overflow: hidden;
 }
 
+/* 顶栏：单行自适应状态条。
+   旧实现 .status-grid 是固定 4 列网格，6 个状态块必然折成 2 行（高度约 140px），
+   且列数写死，窗口变宽也不会变成一行。现改为「内容自适应宽度 + 自动换行」的
+   胶囊标签流式布局：窗口够宽时一行 6 枚，变窄时自然折行，纵向占用大幅下降。 */
 .topbar {
   background: linear-gradient(180deg, rgba(23, 42, 59, 0.72), rgba(16, 30, 42, 0.72));
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 10px;
+  /* 右侧留出折叠按钮的槽位，避免按钮压在最后一枚状态块上 */
+  padding: 8px 36px 8px 10px;
   box-shadow: var(--shadow);
   transition: padding 200ms ease;
   position: relative;
 }
 
 .topbar.collapsed {
-  padding: 4px 10px;
+  padding: 0 28px 0 8px;
+  /* 折叠时状态块隐藏，仅保留一条细状态条 + 折叠按钮 */
+  min-height: 18px;
 }
 
 .topbar-toggle {
   position: absolute;
-  top: 4px;
+  top: 50%;
   right: 6px;
+  transform: translateY(-50%);
   z-index: 10;
   width: 22px;
   height: 22px;
@@ -210,28 +306,46 @@ body.automation-editor-fullscreen #automationFrame {
   display: none;
 }
 
+.topbar.collapsed .topbar-toggle {
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+
 .status-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
 }
 
 .pill {
-  border-radius: 11px;
-  padding: 9px 11px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 11px;
   border: 1px solid rgba(184, 206, 228, 0.2);
   background: rgba(19, 34, 49, 0.8);
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pill-label {
-  display: block;
+  display: inline-block;
   color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 4px;
+  font-size: 11px;
+  margin-bottom: 0;
+  white-space: nowrap;
 }
 
 .pill strong {
-  font-size: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-page {
@@ -273,6 +387,318 @@ body.automation-editor-fullscreen #automationFrame {
 
 .grid-main-right {
   grid-template-columns: minmax(330px, 1fr) minmax(400px, 1.18fr);
+}
+
+/* ── 可拖拽分栏：在 2 列之间插入一条竖直拖拽条（尽量窄，少占版面）── */
+.grid-2.with-splitter {
+  column-gap: 6px;
+  grid-template-columns:
+    var(--split-l, minmax(300px, 1fr)) 4px var(--split-r, minmax(400px, 1.3fr));
+}
+
+.grid-splitter {
+  cursor: col-resize;
+  position: relative;
+  border-radius: 3px;
+  touch-action: none;
+}
+
+.grid-splitter::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 150ms ease;
+}
+
+.grid-splitter:hover::before,
+.grid-splitter.dragging::before {
+  background: var(--accent);
+}
+
+/* ── 宏编辑多标签（IDE 分页式）── */
+.editor-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 2px 4px 8px;
+  min-height: 36px;
+}
+
+.editor-tab-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 7px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(20, 41, 57, 0.7);
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+  transition: 150ms ease;
+}
+
+.editor-tab:hover {
+  border-color: rgba(14, 182, 164, 0.4);
+}
+
+.editor-tab.active {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.24), rgba(255, 190, 85, 0.2));
+  border-color: rgba(255, 190, 85, 0.45);
+}
+
+.editor-tab.dirty .editor-tab-label::after {
+  content: " ●";
+  color: var(--warn);
+  font-size: 10px;
+}
+
+.editor-tab.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.editor-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 165px;
+}
+
+.editor-tab-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 3px;
+  border-radius: 5px;
+}
+
+.editor-tab-close:hover {
+  color: #fff;
+  background: rgba(255, 120, 120, 0.28);
+}
+
+.editor-tab-rename {
+  width: 140px;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
+html.theme-light .editor-tab {
+  background: rgba(255, 255, 255, 0.85);
+}
+html.theme-light .editor-tab.active {
+  background: linear-gradient(120deg, rgba(14, 182, 164, 0.18), rgba(154, 103, 0, 0.12));
+}
+
+/* ── ext 指令：描述符驱动的参数表单 ── */
+.ext-args-area {
+  margin: 6px 0 2px;
+  padding: 7px 8px;
+  border: 1px solid rgba(140, 198, 232, 0.2);
+  border-radius: 9px;
+  background: rgba(13, 25, 37, 0.45);
+}
+
+.ext-args-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.ext-arg-cell {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 190px;
+  flex: 1 1 190px;
+}
+
+.ext-arg-label {
+  font-size: 11px;
+  color: #9ec1da;
+  white-space: nowrap;
+}
+
+.ext-args-hint {
+  font-size: 11px;
+  color: var(--warn);
+  margin-bottom: 6px;
+}
+
+html.theme-light .ext-args-area {
+  background: rgba(255, 255, 255, 0.7);
+}
+html.theme-light .ext-arg-label {
+  color: var(--muted);
+}
+
+/* ── 动作编辑小窗（最多 3 个并排，可同时编辑）── */
+.card-panes {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.editor-panes {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  /* 按视口高度撑开：小窗内容再多也在窗内滚动，不把整页撑长 */
+  height: calc(100vh - 245px);
+  min-height: 220px;
+  flex: 1 1 auto;
+}
+
+.editor-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(13, 25, 37, 0.4);
+  overflow: hidden;
+  transition: border-color 150ms ease;
+}
+
+.editor-pane.active {
+  border-color: var(--accent);
+}
+
+.editor-pane.drop-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.editor-pane.empty {
+  opacity: 0.45;
+}
+
+.editor-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.editor-pane-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-pane-close {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 5px;
+}
+
+.editor-pane-close:hover {
+  color: #fff;
+  background: rgba(255, 120, 120, 0.28);
+}
+
+/* 小窗区域：接受"标签拖入以新建小窗" */
+.editor-panes.tab-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.editor-panes.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+}
+
+.editor-panes-placeholder {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  padding: 20px;
+}
+
+.editor-tab {
+  cursor: grab;
+}
+
+.editor-pane.dirty .editor-pane-title::after {
+  content: " ●";
+  color: var(--warn);
+  font-size: 10px;
+}
+
+.editor-pane .action-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+}
+
+/* 每个小窗独立滚动条 */
+.editor-pane .action-list::-webkit-scrollbar {
+  width: 8px;
+}
+.editor-pane .action-list::-webkit-scrollbar-thumb {
+  background: rgba(150, 180, 205, 0.35);
+  border-radius: 4px;
+}
+.editor-pane .action-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 小窗标题栏可拖拽换位 */
+.editor-pane-head {
+  cursor: grab;
+}
+.editor-pane-head:active {
+  cursor: grabbing;
+}
+.editor-pane.dragging {
+  opacity: 0.55;
+}
+.editor-pane.reorder-target {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+html.theme-light .editor-pane {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .card {
@@ -739,11 +1165,49 @@ button.active-glow {
 
 .action-list li {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 6px;
+  grid-template-columns: 18px 30px minmax(0, 1fr);
+  gap: 5px;
   align-items: center;
   padding: 3px 7px;
   min-height: 24px;
+}
+
+/* 内联编辑器行仍是 2 列（原样式里它是独立规则，但被 .action-list li 覆盖过，这里显式恢复） */
+.action-list li.action-inline-editor {
+  grid-template-columns: 30px minmax(0, 1fr);
+}
+
+/* 测试点标记：默认隐藏，行 hover / 选中时才显现，避免每行都是 ○ 的噪声 */
+.action-bp {
+  flex-shrink: 0;
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 120ms ease;
+}
+
+.action-list li:hover .action-bp,
+.action-list li.active .action-bp {
+  color: rgba(150, 180, 205, 0.6);
+}
+
+.action-bp:hover {
+  color: var(--warn);
+}
+
+.action-bp.on {
+  color: var(--warn);
+}
+
+.action-bp.ghost {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .action-list {
@@ -999,6 +1463,34 @@ select option {
 .inline-edit-btn:last-child {
   margin-left: auto; /* 自动占据剩余空间，推到最右侧 */
 }
+
+/* 未识别/未解析行：原文编辑 */
+.action-inline-editor-raw .action-inline-editor-body {
+  border-color: rgba(230, 168, 78, 0.45);
+}
+.raw-line-editor {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 5px 6px;
+  font-family: var(--fmo, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+  background: var(--bg-raised, rgba(10, 20, 30, 0.6));
+  border: 1px solid var(--border, rgba(140, 198, 232, 0.3));
+  border-radius: 7px;
+  color: var(--txt, #dbe9f5);
+}
+.action-list li.raw-line .action-text {
+  color: #e6a84e;
+}
+html.theme-light .raw-line-editor {
+  color: #22313f;
+}
+html.theme-light .action-list li.raw-line .action-text {
+  color: #a06400;
+}
 .toast {
   position: fixed;
   right: 20px;
@@ -1163,9 +1655,29 @@ hr {
   }
 
   .grid-2,
-  .params-container,
-  .status-grid {
+  .params-container {
     grid-template-columns: 1fr;
+  }
+
+  /* 顶栏状态条已是 flex 自动换行，窄屏只需进一步压缩间距 */
+  .topbar {
+    padding: 6px 34px 6px 8px;
+  }
+
+  .status-grid {
+    gap: 5px 6px;
+  }
+
+  .pill {
+    padding: 3px 9px;
+  }
+
+  .pill-label {
+    font-size: 10px;
+  }
+
+  .pill strong {
+    font-size: 12px;
   }
 
   html,
@@ -1669,4 +2181,49 @@ html.theme-light .brand-mark {
   word-break: break-word;
   margin-top: 4px;
   min-height: 1.4em;
+}
+
+/* ---------- 参数页：热键冲突检测结果 ---------- */
+.hotkey-conflict-result {
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--line);
+  background: var(--card-light);
+  color: var(--text);
+}
+.hotkey-conflict-result.ok {
+  border-color: rgba(14, 182, 164, 0.55);
+}
+.hotkey-conflict-result.warn {
+  border-color: rgba(255, 190, 85, 0.75);
+}
+.hotkey-conflict-result .hk-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+.hotkey-conflict-result .hk-list li {
+  margin: 3px 0;
+}
+.hotkey-conflict-result .hk-badge {
+  display: inline-block;
+  min-width: 34px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--bg);
+  background: var(--warn);
+}
+.hotkey-conflict-result .hk-key {
+  color: var(--muted);
+  margin-left: 2px;
+}
+
+/* 顶栏状态：异常态高亮（如 Standby 开关开着但 native 扩展未加载） */
+.pill strong.warn-text {
+  color: var(--warn);
 }

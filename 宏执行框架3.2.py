@@ -16,7 +16,18 @@ import ctypes
 import json
 import random
 import gc
+import sys as _sys
 from collections import deque
+
+# 允许以任意方式加载本文件（含 importlib 自定义别名）时都能找到宽松解析器
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in _sys.path:
+    _sys.path.insert(0, _THIS_DIR)
+try:
+    from lenient_json import loads_lenient as _loads_lenient
+except Exception:  # noqa: BLE001 - 极端情况下退回标准解析，绝不阻断启动
+    _loads_lenient = None
+
 from engine.precision import (
     boost_process_priority,
     boost_thread_priority,
@@ -24,6 +35,8 @@ from engine.precision import (
     precise_sleep_v5 as precise_sleep,
     auto_warmup,
     set_system_timer_resolution_enabled,
+    set_process_priority_tier,
+    restore_process_priority,
 )
 from pynput import keyboard, mouse
 from engine.input_sendinput import (
@@ -34,7 +47,7 @@ from engine.input_sendinput import (
     MOUSEINPUT, KEYBDINPUT, HARDWAREINPUT, INPUT_U, INPUT_STR,
     VK_MAP, _VK_TO_NAME, get_vk,
     send_key_sendinput, send_click_sendinput, send_move_sendinput,
-    set_cursor_pos, send_scroll_sendinput, release_all_modifiers,
+    set_cursor_pos, get_cursor_pos, send_scroll_sendinput, release_all_modifiers,
 )
 
 # —— 配置自定义常量 ——
@@ -88,6 +101,13 @@ ENABLE_BATCH_SEND = True           # 总开关
 BATCH_DELAY_THRESHOLD_MS = 3.0     # 延迟 <= 此值的连续动作可合并（0.0 = 仅合并严格0延迟，最安全无时序偏移
 BATCH_MAX_SIZE = 16                # 单批最大动作数（建议 8~32）
 BATCH_INCLUDE_MOUSE_CLICK = True   # 是否将鼠标点击(md/mu)纳入合并
+
+# —— 精度/占用档位 ——
+# 统一入口：latency_first(延迟优先) / balanced(均衡) / cpu_saver(低占用) / custom(自定义)
+# 详见 core/precision_profile.py。切换档位会联动下方一整套开关。
+PRECISION_PROFILE = "balanced"
+PROCESS_PRIORITY_TIER = "normal"     # idle/below/normal/above/high/realtime；可被恢复
+DETECTION_FRAME_CACHE_TTL_MS = 0.0   # 共享帧缓存有效期(ms)；0=跟随档位默认
 
 # —— 高级参数 ——
 ENABLE_REALTIME_PRIORITY = False     # 进程优先级切换到 REALTIME（默认关闭，避免系统输入被饿死）
@@ -327,8 +347,64 @@ def _record_interception_keyboard_result(success, reason=""):
             print(f"[系统] 键盘 Interception 连续失败，临时切换 SendInput {remain:.1f}s | 原因: {reason}")
 
 
+# ── 已按下输入跟踪 ──────────────────────────────────────────────────────────
+# 宏被 ESC / 异常中断时会停在 "kd 未 ku" 的位置，导致按键卡死。
+# 原先的收尾只释放 shift/ctrl/alt + 鼠标左右键，普通键和中键不会被释放。
+# native standby 路径在 C 侧（standby_engine.c: release_all_pressed）有完整状态表，
+# Python 路径此前没有。这里补上等价实现。
+_pressed_keys = set()
+_pressed_mouse = set()
+_pressed_lock = threading.Lock()
+
+
+def _track_key(vk_code, up):
+    try:
+        with _pressed_lock:
+            if up:
+                _pressed_keys.discard(vk_code)
+            else:
+                _pressed_keys.add(vk_code)
+    except Exception:
+        pass
+
+
+def _track_mouse(left, up):
+    try:
+        tag = "middle" if left is None else ("left" if left else "right")
+        with _pressed_lock:
+            if up:
+                _pressed_mouse.discard(tag)
+            else:
+                _pressed_mouse.add(tag)
+    except Exception:
+        pass
+
+
+def release_tracked_inputs():
+    """补发所有仍处于按下状态的键/鼠标键的抬起事件。"""
+    with _pressed_lock:
+        keys = list(_pressed_keys)
+        mice = list(_pressed_mouse)
+        _pressed_keys.clear()
+        _pressed_mouse.clear()
+    for vk in keys:
+        try:
+            send_key_event(vk, True)
+        except Exception:
+            pass
+    for tag in mice:
+        try:
+            left = None if tag == "middle" else (tag == "left")
+            send_mouse_click(left, True)
+        except Exception:
+            pass
+    if keys or mice:
+        print(f"[系统] 已补发抬起: 键={len(keys)} 鼠标键={len(mice)}")
+
+
 def send_key_event(vk_code, up=False):
     """发送键盘事件（自动选择最高精度后端）"""
+    _track_key(vk_code, up)
     if USE_INTERCEPTION and USE_INTERCEPTION_KEYBOARD and _can_use_interception_keyboard():
         global _interception_available
         if _interception_available is None:
@@ -350,6 +426,7 @@ def send_key_event(vk_code, up=False):
 
 def send_mouse_click(left=True, up=False):
     """发送鼠标点击事件"""
+    _track_mouse(left, up)
     if USE_INTERCEPTION and USE_INTERCEPTION_MOUSE:
         global _interception_available
         if _interception_available is None:
@@ -928,8 +1005,16 @@ def load_macro_recursive(filepath, visited_files=None):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
-        clean_content = remove_comments(raw_content)
-        macro_data = json.loads(clean_content)
+        # 容忍用户手工编辑产生的"多余/缺失逗号"与注释：
+        # 标准 json.loads 对结尾多一个逗号、或两条动作之间漏写逗号都会整份报错。
+        if _loads_lenient is not None:
+            macro_data = _loads_lenient(raw_content)
+        else:
+            clean_content = remove_comments(raw_content)
+            macro_data = json.loads(clean_content)
+        if not isinstance(macro_data, list):
+            print(f"[错误] 宏文件顶层必须是数组（{filepath}）")
+            return final_script
 
         for item in macro_data:
             if isinstance(item, list):
@@ -995,6 +1080,132 @@ def _parse_delay_field(raw):
     return max(0.0, float(raw) / 1000.0)
 
 
+# ==============================================================================
+# 附加宏指令（ext）扩展点
+# ------------------------------------------------------------------------------
+# 语法：["ext", "<域>.<动作>", <参数...>]
+#
+# 用途：把"本内核不负责、由插件或外部工具执行"的动作（帧率切换 / 联网状态 / 帧数模拟…）
+#       以内联文本指令的形式写进同一份宏文件，随宏一起读取。
+#
+# 设计约束（务必遵守）：
+#   1. 命名空间隔离：一律以 "ext" 开头，与核心指令（kd/ku/md/mu/view/move_to/scroll/
+#      wait/loop/import）**显式区分**，不污染通用内核语义。
+#   2. 不影响核心时间线：ext 动作的延时恒为 0，且**不参与随机延迟修正与误差补偿**，
+#      因此插入任意条 ext 都不会位移 kd/ku 等核心动作的时间线（宏动作保持高精度）。
+#   3. 不丢数据：handler 未注册时告警并按无副作用跳过；文件层面由 macro_io.parser
+#      保留原始行，编辑器中可原文修复。
+#   4. 实现归属：具体动作由插件通过 register_ext_handler() 注册，内核不含任何外部依赖。
+# ==============================================================================
+EXT_HANDLERS = {}
+# ext 指令的**描述符**表（T2-2）：驱动宏编辑器的可视化参数表单。
+# 描述符与处理器分离：插件可只声明描述符（计划中/尚未安装），界面照样能编辑。
+EXT_COMMAND_SPECS = {}
+_ext_warned = set()
+
+
+def register_ext_command(spec):
+    """注册/覆盖一个 ext 指令**描述符**（供宏编辑器可视化）。
+
+    spec 形如::
+
+        {"name": "fps.lock", "label": "锁定帧率", "description": "…",
+         "args": [{"name": "fps", "label": "帧率", "type": "number",
+                   "default": 30, "min": 1, "max": 240, "step": 1,
+                   "description": "目标帧率"}]}
+    """
+    if not isinstance(spec, dict):
+        raise ValueError("register_ext_command 需要 dict")
+    name = str(spec.get("name", "")).strip()
+    if not name:
+        raise ValueError("ext 指令描述符必须包含 name")
+    clean = dict(spec)
+    clean["name"] = name
+    clean.setdefault("label", name)
+    clean.setdefault("args", [])
+    EXT_COMMAND_SPECS[name] = clean
+    return clean
+
+
+def list_ext_commands():
+    """返回已注册的 ext 指令描述符（附带 has_handler 标记）。"""
+    out = []
+    for name, spec in sorted(EXT_COMMAND_SPECS.items()):
+        item = dict(spec)
+        item["has_handler"] = name in EXT_HANDLERS
+        out.append(item)
+    # 有处理器但没描述符的也列出（至少能确认可用）
+    for name in sorted(EXT_HANDLERS):
+        if name not in EXT_COMMAND_SPECS:
+            out.append({"name": name, "label": name, "description": "（该指令未提供描述符）",
+                        "args": [], "has_handler": True})
+    return out
+
+
+def register_ext_handler(name, handler, spec=None):
+    """注册（或覆盖）一个 ext 指令处理器；可同时声明描述符。
+
+    handler 约定：``handler(args: list) -> Any``，args 为 ["ext", name, ...] 中 name 之后的参数列表。
+    插件可在 backend.py 的模块加载期调用本函数完成注册。
+    """
+    if not name or not callable(handler):
+        raise ValueError("register_ext_handler 需要非空 name 与可调用 handler")
+    EXT_HANDLERS[str(name)] = handler
+    if spec is not None:
+        s = dict(spec)
+        s.setdefault("name", str(name))
+        register_ext_command(s)
+    return handler
+
+
+def unregister_ext_handler(name):
+    """注销一个 ext 指令处理器，返回被移除的 handler（无则 None）。"""
+    return EXT_HANDLERS.pop(str(name), None)
+
+
+def list_ext_handlers():
+    """返回当前已注册的 ext 指令名列表。"""
+    return sorted(EXT_HANDLERS.keys())
+
+
+# —— 内置 ext 指令（本工程自带，非外部插件）——
+# ext.echo 仅用于**验证 ext 通道**（打印参数、无副作用），方便端到端自测。
+def _ext_builtin_echo(args):
+    print(f"[ext.echo] {args}")
+
+
+register_ext_handler("ext.echo", _ext_builtin_echo, spec={
+    "name": "ext.echo",
+    "label": "测试回显（内置）",
+    "description": "把参数打印到控制台，用于验证 ext 指令通道；不产生任何副作用。",
+    "builtin": True,
+    "args": [
+        {"name": "text", "label": "文本", "type": "string", "default": "hello"},
+        {"name": "count", "label": "次数", "type": "number", "default": 1, "min": 1, "max": 10, "step": 1},
+    ],
+})
+
+# —— 计划中的外部指令：**只声明描述符、不含处理器** ——
+# 目的是让宏编辑器提前具备可视化编辑能力；等专用软件（插件）落地后
+# 由插件调用 register_ext_handler(name, handler) 补上处理器即可，界面无需改动。
+for _spec in (
+    {"name": "fps.lock", "label": "锁定帧率（需插件）", "planned": True,
+     "description": "把游戏帧率锁定到指定值（依赖 RTSS / 外部插件）。",
+     "args": [{"name": "fps", "label": "目标帧率", "type": "number", "default": 30, "min": 1, "max": 240, "step": 1},
+              {"name": "mode", "label": "方式", "type": "enum", "default": "set",
+               "options": ["set", "restore"], "description": "set=锁帧, restore=恢复"}]},
+    {"name": "net.set", "label": "设置联网状态（需插件）", "planned": True,
+     "description": "切换正常/断网/弱网/强网（依赖外部网络整形器）。",
+     "args": [{"name": "state", "label": "状态", "type": "enum", "default": "normal",
+               "options": ["normal", "offline", "weak", "strong"]}]},
+    {"name": "frame.sim", "label": "帧数模拟（需插件）", "planned": True,
+     "description": "按目标帧率进行帧步进模拟（实现方式待定）。",
+     "args": [{"name": "fps", "label": "目标帧率", "type": "number", "default": 60, "min": 1, "max": 240, "step": 1},
+              {"name": "mode", "label": "模式", "type": "enum", "default": "pace", "options": ["pace", "limit"]}]},
+):
+    register_ext_command(_spec)
+
+
 def compile_macro(script):
     """编译宏脚本为可执行指令（修复闭包陷阱）"""
     if not script:
@@ -1037,6 +1248,31 @@ def compile_macro(script):
 
     def _parse(item):
         cmd = item[0]
+
+        # —— 附加宏指令（ext）：命名空间隔离，零延时，不参与随机/补偿 ——
+        if cmd == "ext":
+            name = str(item[1]) if len(item) > 1 else ""
+            ext_args = list(item[2:]) if len(item) > 2 else []
+            _reserve_actions(1)
+            desc = f"ext:{name}"
+            handler = EXT_HANDLERS.get(name)
+            if handler is None:
+                if name not in _ext_warned:
+                    _ext_warned.add(name)
+                    print(f"[ext] 未注册的附加指令 '{name}'：已跳过（不影响时间线）。"
+                          f"请由插件 register_ext_handler('{name}', ...) 后重试。")
+                return [(None, 0.0, "ext", desc,
+                         {"type": "ext", "name": name, "args": ext_args, "handled": False})]
+
+            def _run_ext(_h=handler, _a=ext_args, _n=name):
+                try:
+                    _h(_a)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[ext] 指令 '{_n}' 执行出错：{exc}")
+
+            return [(_run_ext, 0.0, "ext", desc,
+                     {"type": "ext", "name": name, "args": ext_args, "handled": True})]
+
         if cmd == "loop":
             block = []
             loop_body = item[2]
@@ -1122,10 +1358,14 @@ def compile_macro(script):
             step_delay_list = _split_float_duration_preserve_sum(dur_ms / 1000.0, steps)
             _reserve_actions(steps)
             result = []
+            # 插值起点必须是**当前光标位置**，而不是屏幕原点 (0,0)。
+            # 原实现第一步会把光标瞬移到 (target_x/steps, target_y/steps) —— 即左上角附近，
+            # 再滑向目标。在原神这类走 RawInput 的游戏里会造成视角剧烈甩动/误触 UI。
+            start_x, start_y = get_cursor_pos()
             for i in range(steps):
                 t = (i + 1) / steps
-                cur_x = int(round(target_x * t))
-                cur_y = int(round(target_y * t))
+                cur_x = int(round(start_x + (target_x - start_x) * t))
+                cur_y = int(round(start_y + (target_y - start_y) * t))
                 s_del = step_delay_list[i]
                 func = lambda cx=cur_x, cy=cur_y: set_cursor_pos(cx, cy)
                 result.append((func, s_del, "move_to",
@@ -1141,6 +1381,11 @@ def compile_macro(script):
         if func:
             _reserve_actions(1)
             return [(func, delay_s, cmd, action_desc, raw_info)]
+        # 未识别的指令：告警一次（原文由 macro_io.parser 保留，不会丢数据）
+        key = str(cmd)
+        if key not in _ext_warned:
+            _ext_warned.add(key)
+            print(f"[宏] 跳过未识别的指令 '{key}'（原文已保留，可在宏编辑器中修复）")
         return []
 
     for step in script:
@@ -1278,7 +1523,7 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
         def compute_compensation(self, current_time, ideal_time, next_delay, action_type=""):
             raw_lag = current_time - ideal_time
             smoothed_lag = self._kalman_update(raw_lag)
-            if action_type == "wait":
+            if action_type in ("wait", "ext"):
                 return 0.0
             if abs(smoothed_lag) <= self.error_trigger:
                 self._integral *= self.integral_decay
@@ -1330,7 +1575,7 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
             self._window.append(driver_cost)
             if len(self._window) >= self._warmup_steps:
                 self._avg_driver_cost = sum(self._window) / len(self._window)
-            if action_type == "wait":
+            if action_type in ("wait", "ext"):
                 return 0.0
             ff_comp = self._avg_driver_cost * self._scale if len(self._window) >= self._warmup_steps else 0.0
             raw_error = current_time - ideal_time
@@ -1487,6 +1732,9 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
                     adjusted_delay = sum(calc_adjusted_delay_seconds(d) for d in individual_delays)
             elif action_type == "wait":
                 adjusted_delay = base_delay
+            elif action_type == "ext":
+                # ext 不参与任何延时/随机修正/补偿：插入 ext 不位移核心动作时间线
+                adjusted_delay = 0.0
             elif use_absolute_timeline and not _opt.get("absolute_delay_adjust", ABSOLUTE_TIMELINE_USE_DELAY_ADJUST):
                 adjusted_delay = base_delay
             else:
@@ -1722,6 +1970,11 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
             send_key_event(get_vk("alt"), True)
             send_mouse_click(True, True)
             send_mouse_click(False, True)
+            # 上面只覆盖了 shift/ctrl/alt 和鼠标左右键。宏自己按下的普通键
+            # （w/a/s/d/e/q/1~4 等）和中键在 ESC 中止后会卡住 —— 停在 kd 未 ku 的位置。
+            # native standby 路径的 C 侧 release_all_pressed() 有完整状态表，
+            # Python 路径此前没有。这里补上（见 _pressed_keys / _pressed_mouse 跟踪）。
+            release_tracked_inputs()
 
 
 # ==================== RTSS 帧同步 ====================
@@ -2702,8 +2955,11 @@ def trigger_macro(trigger_key, start_paused=False):
             assigned_core = _pick_core_for_macro(worker_macro_id)
             if assigned_core is not None:
                 try:
-                    set_thread_affinity(assigned_core)
-                    print(f"[宏绑核] 实例#{worker_macro_id} -> CPU{assigned_core}")
+                    # set_thread_affinity 现在返回 bool：失败时不再误报“已绑核”
+                    if set_thread_affinity(assigned_core):
+                        print(f"[宏绑核] 实例#{worker_macro_id} -> CPU{assigned_core}")
+                    else:
+                        print(f"[宏绑核] CPU{assigned_core} 绑定失败，改为系统调度")
                 except Exception as affinity_err:
                     print(f"[宏绑核] 绑定失败，改为系统调度：{affinity_err}")
 
@@ -3018,6 +3274,60 @@ def get_listener_state():
 def request_stop_listeners():
     """请求停止键鼠监听循环。"""
     listener_control_event.set()
+
+
+def run_macro_file_once(filepath, options=None, macro_name=None):
+    """直接执行一个宏文件（供宏编辑器"测试点运行"使用）。
+
+    与"按键绑定触发"的区别：不走触发键占位、不进预编译缓存；但同样
+      · 注册进 active_macros（因此"停止全部宏 / 全局暂停"对它同样有效）
+      · 走 standby 分支（可用时）+ Python 分支，保持精度一致
+    返回 (ok: bool, message: str)。
+    注意：**加载与编译是同步完成的**，返回后调用方可以安全删除临时宏文件。
+    """
+    try:
+        script = load_macro_from_file(filepath)
+        compiled = compile_macro(script)
+        _batch = globals().get("batch_compiled_macro")
+        if callable(_batch):
+            compiled = _batch(compiled)
+    except Exception as e:  # noqa: BLE001
+        return False, f"加载/编译失败：{e}"
+
+    if not compiled:
+        return False, "没有可执行动作（切片为空或全部被跳过）"
+
+    macro_id = next_macro_id()
+    stop_event = threading.Event()
+    pause_event = threading.Event()
+    name = macro_name or os.path.basename(filepath)
+    compiled_list = list(compiled)
+
+    def _worker():
+        try:
+            boost_thread_priority()
+            _opt = dict(options or {})
+            if ENABLE_STANDBY_ENGINE and _standby_available():
+                try:
+                    if _execute_via_standby(compiled_list, stop_event, name, _opt):
+                        return
+                    if not STANDBY_FALLBACK_ON_FAIL:
+                        return
+                    print(f"[测试运行] standby 未完成，回退 Python 路径：{name}")
+                except Exception as e:  # noqa: BLE001
+                    if not STANDBY_FALLBACK_ON_FAIL:
+                        raise
+                    print(f"[测试运行] standby 异常，回退 Python 路径：{e}")
+            execute_macro_once(compiled_list, stop_event, pause_event, macro_name=name, options=_opt)
+        except Exception as e:  # noqa: BLE001
+            print(f"[测试运行] 执行出错：{e}")
+        finally:
+            unregister_active_macro(macro_id)
+
+    th = threading.Thread(target=_worker, name=f"MacroTestRun-{macro_id}", daemon=True)
+    register_active_macro(macro_id, f"__testrun__{macro_id}", name, th, stop_event, pause_event)
+    th.start()
+    return True, f"已启动测试运行（{len(compiled_list)} 步）"
     return True
 
 
@@ -3035,7 +3345,17 @@ def start_listeners():
     listener_control_event.clear()
     listener_running = True
 
-    boost_process_priority()
+    # 原来这里是 boost_process_priority()，无条件把整个进程抬到 HIGH_PRIORITY_CLASS
+    # 且永不恢复 —— 一旦启动过监听器，WebUI 进程（含 OCR / 截图 / 监视器线程）
+    # 就永久以高优先级运行，直接和游戏抢 CPU。改为按档位设置，且可恢复。
+    _startup_tier = globals().get("PROCESS_PRIORITY_TIER", "normal")
+    if globals().get("ENABLE_REALTIME_PRIORITY"):
+        _startup_tier = "realtime"
+    try:
+        set_process_priority_tier(_startup_tier)
+        print(f"[系统] 进程优先级档位: {_startup_tier}")
+    except Exception:
+        boost_process_priority()
     if ENABLE_REALTIME_PRIORITY:
         ok = apply_realtime_priority(True)
         print(f"[系统] 进程实时优先级: {'已开启' if ok else '开启失败，保持当前'}")

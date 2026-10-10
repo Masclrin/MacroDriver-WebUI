@@ -206,6 +206,8 @@ class ExtraApiMixin:
             {"name": "全局参数", "icon": "fa-solid fa-sliders", "desc": "配置所有模块参数，支持导入导出"},
             {"name": "全局控制台", "icon": "fa-solid fa-terminal", "desc": "实时查看系统运行日志"},
             {"name": "自动化编辑器", "icon": "fa-solid fa-diagram-project", "desc": "可视化搭建自动化流程，支持插件扩展"},
+            {"name": "精度/占用档位", "icon": "fa-solid fa-gauge-high", "desc": "在「全局参数→执行框架」一键切换 延迟优先/均衡/低占用/自定义，联动 15 项精度与 CPU 参数；顶栏常显当前档位与 Standby 引擎加载状态"},
+            {"name": "热键冲突检测", "icon": "fa-solid fa-keyboard", "desc": "「全局参数」页一键检测所有全局快捷键是否互相冲突；「额外功能→快捷键速查」按真实配置展示并标注冲突项"},
             {"name": "额外功能", "icon": "fa-solid fa-toolbox", "desc": "环境检查、驱动管理、系统信息等工具"},
         ]
         return self._ok(features=features)

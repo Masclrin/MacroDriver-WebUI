@@ -50,6 +50,11 @@ window.AutomationProperty._bindEvents = function(container, node, schema) {
                     if (window.AutomationCore && window.AutomationCore._refreshNodeDOM) {
                         window.AutomationCore._refreshNodeDOM(node);
                     }
+                } else if (field.tagName === 'SPAN') {
+                    // 只读内联字段（stage_list / stage_ref / region）
+                    if (window.AutomationCore && window.AutomationCore._refreshNodeDOM) {
+                        window.AutomationCore._refreshNodeDOM(node);
+                    }
                 } else {
                     field.value = value;
                 }
@@ -297,6 +302,43 @@ window.AutomationProperty._bindEvents = function(container, node, schema) {
                 _markPropDirty();
             });
             inp.addEventListener('blur', _flushPropUndo);
+        });
+    });
+
+    container.querySelectorAll('.stage-list-row input[data-subkey="stage"]').forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var listField = inp.closest('.stage-list-field');
+            if (!listField) return;
+            var listKey = listField.dataset.key;
+            var stages = [];
+            listField.querySelectorAll('.stage-list-row').forEach(function(r) {
+                var t = r.querySelector('[data-subkey="stage"]');
+                if (t && t.value.trim()) stages.push(t.value.trim());
+            });
+            node.properties[listKey] = stages.join('→');
+            _syncInlineField(listKey, node.properties[listKey]);
+            _markPropDirty();
+            if (window.AutomationCore && window.AutomationCore._notifyGraphChange) {
+                window.AutomationCore._notifyGraphChange();
+            }
+        });
+        inp.addEventListener('blur', function() {
+            _flushPropUndo();
+            // 阶段名变化后刷新「失败回退」下拉项
+            self.render(node);
+        });
+    });
+
+    container.querySelectorAll('select[data-type="stageRef"]').forEach(function(sel) {
+        sel.addEventListener('change', function() {
+            var key = sel.dataset.key;
+            node.properties[key] = sel.value;
+            _syncInlineField(key, sel.value);
+            _markPropDirty();
+            if (window.AutomationCore && window.AutomationCore._notifyGraphChange) {
+                window.AutomationCore._notifyGraphChange();
+            }
+            _flushPropUndo();
         });
     });
 

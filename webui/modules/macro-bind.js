@@ -294,9 +294,8 @@ export function bindMacroActions() {
 
     await apiCall('delete_macro', state.selectedMacro);
     showToast('已删除宏文件');
+    if (typeof state.closeTabByPath === 'function') state.closeTabByPath(state.selectedMacro);
     state.selectedMacro = null;
-    state.editorRows = [];
-    if (state.renderActionList) state.renderActionList();
     await refreshMacros();
     await refreshBindings();
   });
@@ -344,7 +343,8 @@ export function bindMacroActions() {
 
   q('#btnStartListeners').addEventListener('click', async () => {
     const ret = await apiCall('toggle_global_listeners');
-    q('#btnStartListeners').textContent = ret.running ? '关闭全局宏监听 ◉' : '启动全局宏监听 ○';
+    const listenLabel = q('#btnStartListeners').querySelector('.btn-label');
+    if (listenLabel) listenLabel.textContent = ret.running ? '关闭全局宏监听 ◉' : '启动全局宏监听 ○';
     q('#btnStartListeners').classList.toggle('primary', !!ret.running);
     q('#btnStartListeners').classList.toggle('primary-dim', !ret.running);
     q('#btnStartListeners').classList.toggle('active-glow', !!ret.running);
@@ -353,7 +353,8 @@ export function bindMacroActions() {
 
   q('#btnGlobalPause').addEventListener('click', async () => {
     const ret = await apiCall('toggle_global_pause');
-    q('#btnGlobalPause').textContent = ret.paused ? '关闭全局暂停 ⏸' : '开启全局暂停 ▶';
+    const pauseLabel = q('#btnGlobalPause').querySelector('.btn-label');
+    if (pauseLabel) pauseLabel.textContent = ret.paused ? '关闭全局暂停 ⏸' : '开启全局暂停 ▶';
     q('#btnGlobalPause').classList.toggle('pause-active', !!ret.paused);
     showToast(ret.paused ? '全局暂停已开启' : '全局暂停已解除');
     const { refreshSnapshot } = await import('./dashboard.js');

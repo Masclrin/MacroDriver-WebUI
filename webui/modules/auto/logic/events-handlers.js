@@ -107,17 +107,24 @@
             if (!eventName) return;
 
             if (eventName === 'plugin_reloaded') {
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.get_node_defs) {
-                    window.pywebview.api.get_node_defs().then(function(defs) {
+                // 原来是 get_node_defs —— 后端根本不存在这个方法（正确名是
+                // get_node_definitions），守卫恒为 false，导致插件重载后
+                // 前端节点定义永远停留在旧版本且无任何报错。
+                // 响应信封为 {ok, data:{nodes, engines}}，需取 data.nodes。
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.get_node_definitions) {
+                    window.pywebview.api.get_node_definitions().then(function(resp) {
+                        var defs = (resp && resp.ok && resp.data) ? (resp.data.nodes || resp.data) : null;
                         if (defs && window.AutomationNodes && AutomationNodes.registerPluginNodes) {
                             var pluginDefs = {};
                             for (var k in defs) {
-                                if (defs.hasOwnProperty(k) && k.startsWith('plugin/')) {
+                                if (defs.hasOwnProperty(k) && k.indexOf('plugin/') === 0) {
                                     pluginDefs[k] = defs[k];
                                 }
                             }
                             AutomationNodes.registerPluginNodes(pluginDefs);
                         }
+                    }).catch(function(e) {
+                        console.error('[AutomationEvents] 重载插件节点定义失败:', e);
                     });
                 }
             }

@@ -1,11 +1,20 @@
-import { state } from '../core/state.js';
 import { parseNumber, pathKey, isLoopAction, cloneAction } from './action-model.js';
 
 export { parseNumber, pathKey, keyToPath, isLoopAction, cloneAction } from './action-model.js';
 
-export function getActionAndContainerByPath(path) {
+// 所有操作都以「编辑器视图 view」为作用域。
+// view 形状（由 editor/index.js 创建）：
+//   { id, el, listEl, tabId, rows[], selectedActionPath, selectedLineKind,
+//     expandedLoopPathKeys:Set, inlineEditingPathKey, scrollTop }
+// 这样同一份代码可同时服务最多 3 个并排小窗口，互不干扰。
+
+function rowsOf(view) {
+  return view && Array.isArray(view.rows) ? view.rows : [];
+}
+
+export function getActionAndContainerByPath(view, path) {
   if (!Array.isArray(path) || !path.length) return null;
-  let container = state.editorRows;
+  let container = rowsOf(view);
 
   for (let depth = 0; depth < path.length; depth += 1) {
     const index = path[depth];
@@ -22,14 +31,14 @@ export function getActionAndContainerByPath(path) {
   return null;
 }
 
-export function getActionAtPath(path) {
-  const found = getActionAndContainerByPath(path);
+export function getActionAtPath(view, path) {
+  const found = getActionAndContainerByPath(view, path);
   return found ? found.action : null;
 }
 
-export function getParentInsertTarget(path, offset = 0) {
+export function getParentInsertTarget(view, path, offset = 0) {
   if (!Array.isArray(path) || !path.length) {
-    return { type: 'root', index: state.editorRows.length };
+    return { type: 'root', index: rowsOf(view).length };
   }
 
   const parentPath = path.slice(0, -1);
@@ -41,11 +50,11 @@ export function getParentInsertTarget(path, offset = 0) {
   return { type: 'loop', loopPath: parentPath, index };
 }
 
-export function getContainerForTarget(target) {
+export function getContainerForTarget(view, target) {
   if (!target) return null;
-  if (target.type === 'root') return state.editorRows;
+  if (target.type === 'root') return rowsOf(view);
   if (target.type === 'loop') {
-    const loopAction = getActionAtPath(target.loopPath);
+    const loopAction = getActionAtPath(view, target.loopPath);
     if (!isLoopAction(loopAction)) return null;
     return loopAction[2];
   }
@@ -57,23 +66,24 @@ export function isPathPrefix(prefix, full) {
   return prefix.every((part, idx) => part === full[idx]);
 }
 
-export function clearExpandedLoopKeysByPrefix(path) {
+export function clearExpandedLoopKeysByPrefix(view, path) {
   const prefix = pathKey(path);
-  if (!prefix) return;
-  Array.from(state.expandedLoopPathKeys).forEach((key) => {
+  if (!prefix || !view || !view.expandedLoopPathKeys) return;
+  Array.from(view.expandedLoopPathKeys).forEach((key) => {
     if (key === prefix || key.startsWith(`${prefix}.`)) {
-      state.expandedLoopPathKeys.delete(key);
+      view.expandedLoopPathKeys.delete(key);
     }
   });
 }
 
-export function setSelectedLine(path, kind = 'action') {
-  state.selectedActionPath = Array.isArray(path) ? [...path] : null;
-  state.selectedLineKind = kind;
+export function setSelectedLine(view, path, kind = 'action') {
+  if (!view) return;
+  view.selectedActionPath = Array.isArray(path) ? [...path] : null;
+  view.selectedLineKind = kind;
 }
 
-export function insertActionAtTarget(action, target) {
-  const container = getContainerForTarget(target);
+export function insertActionAtTarget(view, action, target) {
+  const container = getContainerForTarget(view, target);
   if (!Array.isArray(container)) {
     throw new Error('插入目标无效');
   }
@@ -82,15 +92,15 @@ export function insertActionAtTarget(action, target) {
   container.splice(insertIndex, 0, cloneAction(action));
 
   if (target.type === 'root') {
-    setSelectedLine([insertIndex], 'action');
+    setSelectedLine(view, [insertIndex], 'action');
   } else {
-    setSelectedLine([...target.loopPath, insertIndex], 'action');
-    state.expandedLoopPathKeys.add(pathKey(target.loopPath));
+    setSelectedLine(view, [...target.loopPath, insertIndex], 'action');
+    view.expandedLoopPathKeys.add(pathKey(target.loopPath));
   }
 }
 
-export function moveActionToTarget(sourcePath, target, showToast) {
-  const source = getActionAndContainerByPath(sourcePath);
+export function moveActionToTarget(view, sourcePath, target, showToast) {
+  const source = getActionAndContainerByPath(view, sourcePath);
   if (!source) return false;
 
   if (target.type === 'loop' && isPathPrefix(sourcePath, target.loopPath)) {
@@ -98,7 +108,7 @@ export function moveActionToTarget(sourcePath, target, showToast) {
     return false;
   }
 
-  const targetContainer = getContainerForTarget(target);
+  const targetContainer = getContainerForTarget(view, target);
   if (!Array.isArray(targetContainer)) return false;
 
   let targetIndex = Math.max(0, Math.min(parseNumber(target.index, targetContainer.length), targetContainer.length));
@@ -115,22 +125,17 @@ export function moveActionToTarget(sourcePath, target, showToast) {
   targetContainer.splice(targetIndex, 0, movingAction);
 
   if (target.type === 'root') {
-    setSelectedLine([targetIndex], 'action');
+    setSelectedLine(view, [targetIndex], 'action');
   } else {
-    setSelectedLine([...target.loopPath, targetIndex], 'action');
-    state.expandedLoopPathKeys.add(pathKey(target.loopPath));
+    setSelectedLine(view, [...target.loopPath, targetIndex], 'action');
+    view.expandedLoopPathKeys.add(pathKey(target.loopPath));
   }
   return true;
 }
 
-export function resolveInsertTargetAfterSelection() {
-  if (!Array.isArray(state.selectedActionPath) || !state.selectedActionPath.length) {
-    return { type: 'root', index: state.editorRows.length };
+export function resolveInsertTargetAfterSelection(view) {
+  if (!Array.isArray(view?.selectedActionPath) || !view.selectedActionPath.length) {
+    return { type: 'root', index: rowsOf(view).length };
   }
-
-  if (state.selectedLineKind === 'loop_end') {
-    return getParentInsertTarget(state.selectedActionPath, 1);
-  }
-
-  return getParentInsertTarget(state.selectedActionPath, 1);
+  return getParentInsertTarget(view, view.selectedActionPath, 1);
 }

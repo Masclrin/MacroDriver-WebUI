@@ -92,7 +92,7 @@ def register(registry):
     registry.register_node({
         "type": "control/seq_check",
         "category": "control",
-        "display_name": "序列检测",
+        "display_name": "多条件检测",
         "color": "#a855f7",
         "inputs": [
             {"name": "in", "type": "flow"},
@@ -103,9 +103,10 @@ def register(registry):
             {"name": "fail", "type": "flow"},
         ],
         "params_schema": {
-            "retry": {"type": "boolean", "default": True, "description": "是否重试检测。关闭则只检测一次，失败直接走fail分支"},
-            "max_retries": {"type": "number", "default": 100, "description": "最大重试次数（每次间隔0.1秒）。例: 100=最多等10秒, 0=无限重试", "varRef": True},
-            "poll_interval_ms": {"type": "number", "default": 100, "description": "轮询间隔(ms)", "varRef": True},
+            "retry": {"type": "boolean", "label": "重复检测", "default": True, "description": "是否一遍遍检测直到满足。关闭=只检测一次，不满足立即走 fail", "display_names": {"true": "是(反复检测)", "false": "否(只检测一次)"}},
+            "max_retries": {"type": "number", "label": "最大检测次数", "default": 100, "description": "最多检测多少次（配合检测间隔≈最长等待时间）。例: 100次×100ms=最多等10秒；0=不限次数（由超时或编辑器停止中断）", "varRef": True},
+            "poll_interval_ms": {"type": "number", "label": "检测间隔(ms)", "default": 100, "description": "每次检测之间的间隔，越小响应越快、越占CPU", "varRef": True},
+            "timeout_ms": {"type": "number", "label": "总超时(ms)", "default": 0, "description": "整体最长等待时间，超过就走 fail。0=不单独计时，只用上面的「最大检测次数」；填了以后以本项为准", "varRef": True},
         },
         "handler": "_handle_seq_check",
     })
@@ -121,25 +122,29 @@ def register(registry):
         ],
         "outputs": [{"name": "done", "type": "flow"}],
         "params_schema": {
-            "poll_interval_ms": {"type": "number", "default": 100, "description": "轮询间隔(ms)", "varRef": True},
             "states": {
-                "type": "string", "default": "", "varRef": True,
+                "type": "stage_list", "label": "阶段列表", "default": "", "varRef": True,
                 "description": (
-                    "各阶段的名称标签，用→连接。这些名字仅用于标记当前处于第几个阶段，不是节点名也不是变量名。"
-                    "每经过一个阶段，cond需为真才能进入下一阶段。\n"
-                    "例: 待机→攻击→冷却→待机 (4个阶段循环)\n"
-                    "例: 登录→选区→进入游戏 (3个阶段线性流程)"
+                    "按先后顺序写下要经历的阶段名字（只是标签，不是节点名/变量名）。"
+                    "执行时从第1个阶段开始：cond 为真就前进到下一阶段，走完最后一个阶段输出 done。"
+                    "示例：待机 → 攻击 → 冷却 → 待机"
                 )
             },
             "fail_state": {
-                "type": "string", "default": "", "varRef": True,
+                "type": "stage_ref", "label": "失败回退阶段", "default": "", "varRef": True,
                 "description": (
-                    "当cond为假时回退到的阶段名称（必须与状态列表中的某个名称完全匹配）。"
-                    "留空则失败也强制前进到下一阶段。\n"
-                    "例: 状态列表填'待机→攻击→冷却'，这里填'待机'，"
-                    "则攻击或冷却阶段失败都会回到待机阶段重新开始"
+                    "cond 为假时回到哪个阶段重新开始（从上面的阶段列表中选择）。"
+                    "留空=不回退，cond 为假时停在当前阶段继续等待"
                 )
             },
+            "stage_timeout_ms": {
+                "type": "number", "label": "单阶段超时(ms)", "default": 0, "varRef": True,
+                "description": (
+                    "单个阶段最长等待时间；某阶段一直等不到 cond 为真时按失败处理（回退/前进）。"
+                    "0 = 不超时（只能靠编辑器停止或分支取消中断）"
+                )
+            },
+            "poll_interval_ms": {"type": "number", "label": "判定间隔(ms)", "default": 100, "description": "每隔多久判定一次 cond，越小响应越快、越占CPU", "varRef": True},
         },
         "handler": "_handle_state_machine",
     })

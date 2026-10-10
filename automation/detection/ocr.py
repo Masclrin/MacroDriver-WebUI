@@ -23,23 +23,31 @@ class OCREngine:
 
     def detect(self, image, match_text="", match_mode="contain",
                match_number=None, cache_key=None, last_image=None,
-               cache_strategy="time_interval", cache_interval_ms=100):
+               cache_strategy="disabled", cache_interval_ms=100):
+        # 默认禁用缓存：OCR 单次约 190ms，返回 100ms 前的结果对实时战斗毫无意义，
+        # 且 _last_result 跨循环迭代从不失效。
         if cache_key and cache_strategy != "disabled" and last_image is not None:
             if image.shape == last_image.shape:
                 if cache_strategy == "frame_diff":
                     diff = np.mean(np.abs(image.astype(float) - last_image.astype(float)))
-                    if diff < 2.0:
+                    # OCR 没有固定模板，按 ROI 面积做保守缩放（等效 80x80 目标）
+                    thr = max(0.02, min(2.0, 16.0 * min(1.0, 6400.0 / max(1, image.shape[0] * image.shape[1]))))
+                    if diff < thr:
                         cached = self._last_result.get(cache_key)
                         if cached:
-                            cached["cost_ms"] = 0.1
-                            return cached
+                            # 返回副本：原实现原地改 cached["cost_ms"] 后返回同一 dict，
+                            # 调用方若修改结果会污染缓存。
+                            out = dict(cached)
+                            out["cost_ms"] = 0.1
+                            return out
                 elif cache_strategy == "time_interval":
                     cached = self._last_result.get(cache_key)
                     if cached:
                         now = time.perf_counter()
                         if (now - cached.get("_timestamp", 0)) * 1000 < cache_interval_ms:
-                            cached["cost_ms"] = 0.1
-                            return cached
+                            out = dict(cached)
+                            out["cost_ms"] = 0.1
+                            return out
 
         engine = self._get_rapidocr()
         start = time.perf_counter()

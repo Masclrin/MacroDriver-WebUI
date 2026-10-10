@@ -123,6 +123,7 @@ class ParamsApiMixin:
                         "example": self.PARAM_DOCS.get(f"{section}.{key}", {}).get("example", ""),
                         "tier": meta.get("tier", "basic"),
                         "options": meta.get("options", []),
+                        "display_names": meta.get("display_names", {}),
                         "depends_on": meta.get("depends_on", []),
                         "value": value,
                         "default": default_value,
@@ -141,6 +142,13 @@ class ParamsApiMixin:
             if not isinstance(payload, dict):
                 return self._fail("参数必须是对象")
 
+            # 精度档位优先处理：它是一组参数的联动预设，
+            # 必须后于它的单参数覆盖之前写入，否则会被随后的旧值盖掉。
+            profile_result = None
+            exec_payload = payload.get("executor") or {}
+            if isinstance(exec_payload, dict) and "PRECISION_PROFILE" in exec_payload:
+                profile_result = self._apply_precision_profile(exec_payload["PRECISION_PROFILE"])
+
             for section, section_values in payload.items():
                 if section not in self.PARAM_SCHEMA:
                     continue
@@ -152,7 +160,15 @@ class ParamsApiMixin:
                 for key, value in section_values.items():
                     if key not in schema:
                         continue
+                    # 档位已写入的值不再被同一次提交里的旧快照覆盖
+                    if (profile_result and section == "executor"
+                            and key in profile_result.get("applied", {})):
+                        continue
                     self._set_schema_value(section, key, value)
+
+            # 进程优先级档位 / 共享帧缓存 TTL
+            if isinstance(exec_payload, dict):
+                self._apply_engine_level_knobs(exec_payload)
 
             if save_to_disk:
                 self._save_param_config_to_disk(self._collect_param_snapshot(include_debug=True))
@@ -163,9 +179,187 @@ class ParamsApiMixin:
                 except Exception:
                     pass
 
-            return self._ok(message="参数更新完成", saved=bool(save_to_disk))
+            extra = {}
+            if profile_result:
+                extra["precision_profile"] = profile_result
+            return self._ok(message="参数更新完成", saved=bool(save_to_disk), **extra)
         except Exception as exc:
             return self._fail("更新全局参数失败", str(exc))
+
+    # ------------------------------------------------------------------
+    # 精度档位
+    # ------------------------------------------------------------------
+    def _precision_engine_module(self):
+        try:
+            from engine import precision as _pr
+            return _pr
+        except Exception:
+            return None
+
+    def _apply_precision_profile(self, profile_name: str) -> dict:
+        """应用精度/占用档位预设。"""
+        try:
+            from core.precision_profile import apply_precision_profile
+        except Exception as exc:
+            return {"applied": {}, "engine": {}, "profile": profile_name, "error": str(exc)}
+        result = apply_precision_profile(
+            profile_name,
+            executor_module=self.executor,
+            engine_module=self._precision_engine_module(),
+        )
+        if result.get("applied"):
+            self.console.push(
+                f"[参数] 已应用精度档位「{profile_name}」，联动 {len(result['applied'])} 项参数"
+            )
+        return result
+
+    def _apply_engine_level_knobs(self, exec_payload: dict):
+        """应用进程优先级档位与共享帧缓存 TTL。"""
+        pr = self._precision_engine_module()
+        tier = exec_payload.get("PROCESS_PRIORITY_TIER")
+        if tier and pr is not None:
+            try:
+                pr.set_process_priority_tier(str(tier))
+            except Exception:
+                pass
+        ttl = exec_payload.get("DETECTION_FRAME_CACHE_TTL_MS")
+        if ttl is not None:
+            try:
+                from core.precision_profile import set_default_frame_cache_ttl
+                set_default_frame_cache_ttl(float(ttl or 0))
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # 热键冲突检测
+    # ------------------------------------------------------------------
+    HOTKEY_KEYS = {
+        "executor": [
+            ("GLOBAL_PAUSE_TOGGLE_KEY", "宏执行·全局暂停/恢复"),
+            ("STOP_MACRO_KEY", "宏执行·停止全部宏"),
+            ("MACRO_RELOAD_KEY", "宏执行·宏重载"),
+        ],
+        "recorder": [
+            ("RECORD_ARM_HOTKEY", "录制·布防/开始"),
+            ("RECORD_STOP_HOTKEY", "录制·停止"),
+            ("RECORD_SAVE_HOTKEY", "录制·保存"),
+            ("RECORD_CLEAR_HOTKEY", "录制·清空"),
+        ],
+        "automation_editor": [
+            ("HOTKEY_RUN", "自动化编辑器·运行"),
+            ("HOTKEY_PAUSE", "自动化编辑器·暂停"),
+            ("HOTKEY_STOP", "自动化编辑器·停止"),
+            ("HOTKEY_FULLSCREEN", "自动化编辑器·全屏"),
+        ],
+    }
+
+    def get_hotkey_conflicts(self):
+        """收集全部全局热键并报告互相冲突的按键。
+
+        F8 同时被「宏执行暂停」「录制停止」「编辑器停止」占用，
+        F7/F10 也各有两处冲突，但项目此前完全没有冲突检测，
+        用户按键后行为取决于注册顺序，且首个注册者之后的全被静默丢弃。
+        """
+        try:
+            collected = {}
+            for section, keys in self.HOTKEY_KEYS.items():
+                module = self._module_by_section(section)
+                if module is None:
+                    continue
+                for key, label in keys:
+                    try:
+                        target, leaf = resolve_attr_target(module, key)
+                        raw = getattr(target, leaf, None)
+                    except Exception:
+                        continue
+                    if raw is None:
+                        continue
+                    name = str(raw).strip().lower()
+                    if not name or name in ("", "none"):
+                        continue
+                    collected.setdefault(name, []).append(
+                        {"section": section, "key": key, "label": label, "value": str(raw)}
+                    )
+            conflicts = [
+                {"key": k, "users": v}
+                for k, v in collected.items() if len(v) > 1
+            ]
+            conflict_keys = {c["key"] for c in conflicts}
+            # 扁平的绑定清单（按分组排序），供「快捷键速查」表格按真实配置渲染
+            flat = []
+            for name, users in collected.items():
+                for u in users:
+                    flat.append({**u, "conflict": name in conflict_keys})
+            flat.sort(key=lambda x: (x["section"], x["key"]))
+            return self._ok(conflicts=conflicts, hotkeys=collected, flat=flat)
+        except Exception as exc:
+            return self._fail("检测热键冲突失败", str(exc))
+
+    def get_engine_summary(self):
+        """汇总「当前实际生效」的引擎状态，供界面明示。
+
+        这些开关此前只能改、看不到结果：用户改了精度档位/Standby 开关后，
+        既不知道联动到了什么，也不知道 native 引擎到底加载没加载
+        （standby .pyd 缺失时会静默回退 Python 路径）。这里把生效值摊开给用户看。
+        """
+        try:
+            ex = self.executor
+            profile = getattr(ex, "PRECISION_PROFILE", None) if ex is not None else None
+            try:
+                from core.precision_profile import get_profile_names, DEFAULT_PRECISION_PROFILE
+                labels = {p["name"]: p["label"] for p in get_profile_names()}
+            except Exception:
+                labels, DEFAULT_PRECISION_PROFILE = {}, "balanced"
+            if not profile:
+                profile = DEFAULT_PRECISION_PROFILE
+
+            standby_enabled = bool(getattr(ex, "ENABLE_STANDBY_ENGINE", False)) if ex is not None else False
+            standby_available = None
+            if ex is not None and hasattr(ex, "_standby_available"):
+                try:
+                    standby_available = bool(ex._standby_available())
+                except Exception:
+                    standby_available = None
+
+            pr = self._precision_engine_module()
+            priority_tier = getattr(ex, "PROCESS_PRIORITY_TIER", None) if ex is not None else None
+            priority_now = None
+            if pr is not None:
+                try:
+                    cur = pr.get_process_priority()
+                    reverse = {v: k for k, v in getattr(pr, "PROCESS_PRIORITY_TIERS", {}).items()}
+                    priority_now = reverse.get(cur, str(cur))
+                except Exception:
+                    priority_now = None
+
+            try:
+                from core.precision_profile import get_default_frame_cache_ttl
+                frame_ttl = get_default_frame_cache_ttl()
+            except Exception:
+                frame_ttl = 0.0
+
+            return self._ok(
+                precision_profile=profile,
+                precision_profile_label=labels.get(profile, profile),
+                standby_enabled=standby_enabled,
+                standby_available=standby_available,
+                standby_effective=bool(standby_enabled and (standby_available is not False)),
+                process_priority_tier=priority_tier,
+                process_priority_now=priority_now,
+                frame_cache_ttl_ms=frame_ttl,
+            )
+        except Exception as exc:
+            return self._fail("读取引擎状态失败", str(exc))
+
+    def get_precision_profiles(self):
+        """供前端渲染档位下拉框。"""
+        try:
+            from core.precision_profile import get_profile_names, DEFAULT_PRECISION_PROFILE
+            current = getattr(self.executor, "PRECISION_PROFILE", DEFAULT_PRECISION_PROFILE) \
+                if self.executor is not None else DEFAULT_PRECISION_PROFILE
+            return self._ok(profiles=get_profile_names(), current=str(current))
+        except Exception as exc:
+            return self._fail("读取精度档位失败", str(exc))
 
     def choose_param_import_file(self):
         try:

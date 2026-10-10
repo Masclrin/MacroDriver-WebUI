@@ -102,6 +102,9 @@ class _DXGICaptureImpl:
         self._device = None
         self._context = None
         self._duplication = None
+        # 原生 ctypes 版 Desktop Duplication（automation/detection/dxgi_duplication.py）
+        # 非 None 时优先使用它取值，且不再走 BitBlt 回退的限速逻辑。
+        self._duplicator = None
         self._frame_buffer = None
         self._frame_lock = threading.Lock()
         self._thread = None
@@ -115,8 +118,15 @@ class _DXGICaptureImpl:
         self._reinit_requested = False
         self._staging_pool = [None, None]
         self._pool_write_idx = 0
+        # _pool_copied 为历史双缓冲方案的遗留状态，新取帧逻辑不再依赖它，
+        # 仅保留属性以兼容 _release_resources 的重置逻辑。
         self._pool_copied = [False, False]
-        self._pool_desc_key = None
+        self._consecutive_map_failures = 0
+        self._max_consecutive_map_failures = 3
+        # 属性名必须是 _staging_desc_key：_ensure_pool() 读取的正是这个名字。
+        # 原先这里写成 _pool_desc_key，导致 _ensure_pool 首帧即 AttributeError，
+        # 被上层 except 吞掉后 DXGI 永不产帧，全部静默回退 BitBlt（每次还打一条 WARNING）。
+        self._staging_desc_key = None
         self._pool_width = 0
         self._pool_height = 0
 
@@ -216,10 +226,58 @@ class _DXGICaptureImpl:
                 from comtypes.gen import DXGI as _DXGI
                 from comtypes.gen import D3D11 as _D3D11
             except Exception as e:
+                # comtypes 路线不可用（comtypes.gen 没有 DXGI/D3D11，且 GetModule 报
+                # TYPE_E_CANTLOADLIBRARY —— 这两个 type library 不属于标准 Windows 组件）。
+                # 先尝试「原生 ctypes vtable」实现的真 Desktop Duplication，它不需要 type library；
+                # 只有连它也失败时，才退化为全屏 BitBlt。
+                if self._initialize_native_duplication(adapter_idx, output_idx):
+                    return True
                 if not _DXGICaptureImpl._init_warned_comtypes:
-                    print(f"[DXGI] comtypes DXGI/D3D11 模块不可用: {e}")
+                    print(f"[DXGI] 真 Desktop Duplication 不可用（comtypes 模块缺失: {e}）"
+                          f"，已退化为全屏 BitBlt 截图；独占全屏程序可能取到黑屏")
                     _DXGICaptureImpl._init_warned_comtypes = True
                 return self._initialize_ctypes(adapter_idx, output_idx)
+
+    def _initialize_native_duplication(self, adapter_idx=0, output_idx=0) -> bool:
+        """原生 ctypes 版 Desktop Duplication（不依赖 comtypes 的 type library）。
+
+        实现见 automation/detection/dxgi_duplication.py：直接按虚表下标调用
+        IDXGIFactory1 / IDXGIOutput1 / IDXGIOutputDuplication / ID3D11Device*。
+        """
+        try:
+            from automation.detection.dxgi_duplication import DesktopDuplicator, is_available
+        except Exception as e:
+            print(f"[DXGI] 原生 duplication 模块不可用: {e}")
+            return False
+
+        if not is_available():
+            return False
+
+        try:
+            dup = DesktopDuplicator()
+            if not dup.initialize(adapter_idx=adapter_idx, output_idx=output_idx):
+                return False
+        except Exception as e:
+            print(f"[DXGI] 原生 duplication 初始化异常: {e}")
+            return False
+
+        with self._frame_lock:
+            if self._duplicator is not None:
+                try:
+                    self._duplicator.release()
+                except Exception:
+                    pass
+            self._duplicator = dup
+
+        self._screen_width = dup.width
+        self._screen_height = dup.height
+        self._output_origin_x, self._output_origin_y = dup.get_output_origin()
+        # 这是真 DXGI（GPU 端复制），不是 BitBlt 回退：不要走回退模式的限速逻辑
+        self._ctypes_mode = False
+        self._initialized = True
+        print("[DXGI] 已启用原生 Desktop Duplication（ctypes vtable，无需 comtypes）"
+              f" output={output_idx} {dup.width}x{dup.height}")
+        return True
 
         try:
             return self._initialize_comtypes(adapter_idx, output_idx, _DXGI, _D3D11)
@@ -310,6 +368,11 @@ class _DXGICaptureImpl:
     def acquire_frame(self, timeout_ms=100) -> np.ndarray | None:
         if not self._initialized:
             return None
+        if self._duplicator is not None:
+            frame = self._duplicator.acquire_frame(timeout_ms)
+            if frame is None and self._duplicator.needs_reinit:
+                self._request_reinit()
+            return frame
         if getattr(self, '_ctypes_mode', False):
             return self._acquire_frame_fallback()
         return self._acquire_frame_comtypes(timeout_ms)
@@ -340,37 +403,51 @@ class _DXGICaptureImpl:
                 if not self._ensure_pool(desc):
                     return None
 
-                w = self._pool_write_idx
-                r = 1 - w
-
-                self._context.CopyResource(self._staging_pool[w], surface)
-                self._pool_copied[w] = True
+                # 取帧策略（修复）：
+                # 旧实现用 D3D11_MAP_FLAG_DO_NOT_WAIT 映射「上一帧」的暂存纹理，
+                # 且不检查 Map 返回的 HRESULT、不保证 Unmap：
+                #   · GPU 尚未完成 CopyResource 时 Map 返回 DXGI_ERROR_WAS_STILL_DRAWING，
+                #     mapped.pData 为 NULL，读取失败被 except 静默吞掉 → 该帧为 None；
+                #   · 失败分支不会 Unmap，纹理状态残留，后续可能持续取不到帧。
+                # 表现为后台「有 DXGI 却经常拿不到新帧 / 只能拿到陈旧帧」，检测会漏判。
+                # 现改为：映射刚刚 CopyResource 进去的那张暂存纹理，使用阻塞式 Map(flags=0)，
+                # 校验 HRESULT，并在 finally 中确保 Unmap —— 与外置脚本一致的取帧方式，
+                # 每帧都是新鲜且有效的内容。
+                idx = self._pool_write_idx
+                staging = self._staging_pool[idx]
+                self._context.CopyResource(staging, surface)
 
                 frame_bgr = None
-                if self._pool_copied[r]:
-                    mapped = D3D11.D3D11_MAPPED_SUBRESOURCE()
+                mapped = D3D11.D3D11_MAPPED_SUBRESOURCE()
+                map_hr = self._context.Map(staging, 0, D3D11_MAP_READ, 0, byref(mapped))
+                if map_hr == S_OK and mapped.pData:
+                    self._consecutive_map_failures = 0
                     try:
-                        self._context.Map(
-                            self._staging_pool[r], 0, D3D11_MAP_READ,
-                            D3D11_MAP_FLAG_DO_NOT_WAIT, byref(mapped)
-                        )
                         width = self._pool_width
                         height = self._pool_height
                         row_pitch = mapped.RowPitch
-                        data_ptr = mapped.pData
 
-                        buf = (c_ubyte * (row_pitch * height)).from_address(data_ptr)
+                        buf = (c_ubyte * (row_pitch * height)).from_address(mapped.pData)
                         frame = np.frombuffer(buf, dtype=np.uint8).reshape((height, row_pitch))
                         frame = frame[:, :width * 4].copy()
                         frame = frame.reshape((height, width, 4))
                         frame_bgr = frame[:, :, :3].copy()
+                    except Exception as e:
+                        print(f"[DXGI] 暂存帧读取失败: {e}")
+                    finally:
+                        try:
+                            self._context.Unmap(staging, 0)
+                        except Exception:
+                            pass
+                else:
+                    self._consecutive_map_failures += 1
+                    if self._consecutive_map_failures >= self._max_consecutive_map_failures:
+                        # 连续映射失败说明暂存池/设备状态异常，重建资源
+                        print("[DXGI] Map 连续失败，请求重建采集资源")
+                        self._request_reinit()
 
-                        self._context.Unmap(self._staging_pool[r], 0)
-                        self._pool_copied[r] = False
-                    except Exception:
-                        pass
-
-                self._pool_write_idx = r
+                # 交替使用两张暂存纹理（阻塞 Map 后已 Unmap，纹理可安全复用）
+                self._pool_write_idx = 1 - idx
                 return frame_bgr
             finally:
                 self._duplication.ReleaseFrame()
@@ -550,6 +627,7 @@ class _DXGICaptureImpl:
         try:
             if self.initialize():
                 self._consecutive_timeouts = 0
+                self._consecutive_map_failures = 0
                 self._reinit_requested = False
                 print("[DXGI] 重新初始化成功")
             else:
@@ -565,6 +643,14 @@ class _DXGICaptureImpl:
         self._request_reinit()
 
     def _release_resources(self):
+        # 原生 duplication：释放复制会话 / 设备 / 暂存纹理
+        duplicator, self._duplicator = self._duplicator, None
+        if duplicator is not None:
+            try:
+                duplicator.release()
+            except Exception:
+                pass
+
         for i in range(2):
             if self._staging_pool[i] is not None:
                 try:
@@ -577,6 +663,7 @@ class _DXGICaptureImpl:
         self._pool_width = 0
         self._pool_height = 0
         self._pool_write_idx = 0
+        self._consecutive_map_failures = 0
         for attr_name in ('_duplication', '_context', '_device'):
             obj = getattr(self, attr_name, None)
             if obj is not None:

@@ -145,6 +145,12 @@ var nodes = {
         showWhen: 'stop_mode=false'
       },
 
+      self_dxgi: {
+        type: 'bool', label: '自带DXGI采集', default: true,
+        description: '开启后，流程中没有启用「截图源」节点时，本节点自行建立DXGI全屏采集（与外置脚本一致，独占全屏/窗口化均可检测）。关闭则仅用流程截图通道',
+        showWhen: 'stop_mode=false'
+      },
+
       idle_timeout: {
         type: 'number', label: '无触发超时(秒)', default: 0, min: 0, max: 3600, step: 1,
         description: '0=不限制，超过此时间无触发走超时出口',

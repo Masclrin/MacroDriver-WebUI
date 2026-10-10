@@ -33,6 +33,16 @@ export function cloneAction(action) {
   return JSON.parse(JSON.stringify(action));
 }
 
+// 未被识别的原始行（解析层无法还原为指令数组时保留原文，便于直接编辑/修复）。
+// 内存形态：{ __raw: "<原始文本>" }；保存时原样写回，绝不因无法解析而丢失内容。
+export function isRawRow(row) {
+  return !!row && typeof row === 'object' && !Array.isArray(row) && typeof row.__raw === 'string';
+}
+
+export function makeRawRow(text) {
+  return { __raw: String(text == null ? '' : text) };
+}
+
 export function isLoopAction(action) {
   return Array.isArray(action)
     && action.length >= 3
@@ -41,6 +51,9 @@ export function isLoopAction(action) {
 }
 
 export function normalizeAction(action) {
+  if (isRawRow(action)) {
+    return { __raw: String(action.__raw) };
+  }
   if (!Array.isArray(action) || !action.length) {
     return ['wait', 50];
   }
@@ -56,6 +69,18 @@ export function normalizeAction(action) {
   if (cmd === 'view') {
     const vec = Array.isArray(action[1]) ? action[1] : [0, 0];
     return ['view', [parseNumber(vec[0], 0), parseNumber(vec[1], 0)], Math.max(1, parseNumber(action[2], 50))];
+  }
+
+  if (cmd === 'move_to') {
+    return ['move_to', parseNumber(action[1], 0), parseNumber(action[2], 0), Math.max(0, parseNumber(action[3], 150))];
+  }
+
+  if (cmd === 'scroll') {
+    return ['scroll', parseNumber(action[1], 0)];
+  }
+
+  if (cmd === 'ext') {
+    return ['ext', String(action[1] ?? '').trim(), ...action.slice(2)];
   }
 
   if (cmd === 'wait') {
@@ -80,10 +105,16 @@ export function normalizeAction(action) {
 
 export function normalizeMacroRows(rows) {
   if (!Array.isArray(rows)) return [];
-  return rows.filter((row) => Array.isArray(row)).map((row) => normalizeAction(row));
+  return rows
+    .filter((row) => Array.isArray(row) || isRawRow(row))
+    .map((row) => normalizeAction(row));
 }
 
 export function formatActionLabel(action, expanded) {
+  if (isRawRow(action)) {
+    const text = String(action.__raw).trim();
+    return `⚠ 原文（未识别）：${text.length > 120 ? text.slice(0, 120) + '…' : text}`;
+  }
   const cmd = String(action[0] ?? '').trim().toLowerCase();
 
   if (cmd === 'wait') {
@@ -92,6 +123,19 @@ export function formatActionLabel(action, expanded) {
   if (cmd === 'view') {
     const vec = Array.isArray(action[1]) ? action[1] : [0, 0];
     return `view [${parseNumber(vec[0], 0)}, ${parseNumber(vec[1], 0)}] ${Math.max(1, parseNumber(action[2], 50))}ms`;
+  }
+  if (cmd === 'move_to') {
+    return `move_to (${parseNumber(action[1], 0)}, ${parseNumber(action[2], 0)}) ${Math.max(0, parseNumber(action[3], 150))}ms`;
+  }
+  if (cmd === 'scroll') {
+    return `scroll ${parseNumber(action[1], 0)}`;
+  }
+  if (cmd === 'ext') {
+    const args = Array.isArray(action) ? action.slice(2) : [];
+    const argsText = args.length
+      ? ' ' + args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
+      : '';
+    return `ext › ${String(action[1] ?? '')}${argsText}`;
   }
   if (cmd === 'import') {
     return `import ${String(action[1] ?? '').trim() || '(空路径)'}`;

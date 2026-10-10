@@ -36,6 +36,11 @@ window.AutomationProperty._syncNodeInlineField = function(node, key, value) {
         if (window.AutomationCore && window.AutomationCore._refreshNodeDOM) {
             window.AutomationCore._refreshNodeDOM(node);
         }
+    } else if (field.tagName === 'SPAN') {
+        // 只读内联字段（stage_list / stage_ref / region）：重建节点 DOM 以刷新文本
+        if (window.AutomationCore && window.AutomationCore._refreshNodeDOM) {
+            window.AutomationCore._refreshNodeDOM(node);
+        }
     } else {
         field.value = value;
     }
@@ -260,4 +265,46 @@ window.AutomationProperty._collectKnownVars = function() {
         }
     }
     return vars;
+};
+
+// ——— 状态机阶段列表增删/排序 ———
+window.AutomationProperty._writeStageList = function(node, key, stages, pushUndo) {
+    node.properties[key] = stages.join('→');
+    this._syncNodeInlineField(node, key, node.properties[key]);
+    if (pushUndo && window.AutomationApp && window.AutomationApp.undoPush) {
+        window.AutomationApp.undoPush();
+    }
+    if (window.AutomationCore && window.AutomationCore._notifyGraphChange) {
+        window.AutomationCore._notifyGraphChange();
+    }
+    this.render(node);
+};
+
+window.AutomationProperty._stageListAdd = function(btn, nodeId, key) {
+    var node = AutomationCore.lgGraphObj.getNodeById(nodeId);
+    if (!node) return;
+    var stages = this._parseStageList(node.properties[key]);
+    stages.push('阶段' + (stages.length + 1));
+    this._writeStageList(node, key, stages, true);
+};
+
+window.AutomationProperty._stageListRemove = function(btn, nodeId, key, index) {
+    var node = AutomationCore.lgGraphObj.getNodeById(nodeId);
+    if (!node) return;
+    var stages = this._parseStageList(node.properties[key]);
+    if (index < 0 || index >= stages.length) return;
+    stages.splice(index, 1);
+    this._writeStageList(node, key, stages, true);
+};
+
+window.AutomationProperty._stageListMove = function(btn, nodeId, key, index, delta) {
+    var node = AutomationCore.lgGraphObj.getNodeById(nodeId);
+    if (!node) return;
+    var stages = this._parseStageList(node.properties[key]);
+    var target = index + delta;
+    if (index < 0 || index >= stages.length || target < 0 || target >= stages.length) return;
+    var tmp = stages[index];
+    stages[index] = stages[target];
+    stages[target] = tmp;
+    this._writeStageList(node, key, stages, true);
 };

@@ -26,6 +26,16 @@ from recorder.trajectory_lib import (
     merge_and_simplify_tracks,
 )
 
+# 宽松 JSON（容忍多余的结尾逗号 / 缺失的逗号 / 注释）
+import sys as _sys
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT_DIR not in _sys.path:
+    _sys.path.insert(0, _ROOT_DIR)
+try:
+    from lenient_json import loads_lenient as _loads_lenient
+except Exception:  # noqa: BLE001
+    _loads_lenient = None
+
 
 # ==============================================================================
 # 用户配置
@@ -82,8 +92,11 @@ def _remove_comments(json_text: str) -> str:
 def load_macro(path: str) -> List[List]:
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
-    cleaned = _remove_comments(raw)
-    data = json.loads(cleaned)
+    if _loads_lenient is not None:
+        data = _loads_lenient(raw)
+    else:
+        cleaned = _remove_comments(raw)
+        data = json.loads(cleaned)
     if not isinstance(data, list):
         raise ValueError(f"宏文件格式错误（应为列表）: {path}")
     return data

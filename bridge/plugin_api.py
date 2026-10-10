@@ -59,3 +59,20 @@ class PluginApiMixin:
             return _ok({"unregistered": True})
         except Exception as e:
             return _err(f"注销插件节点失败: {e}")
+
+    # ── T2-2/T2-3：ext 附加指令描述符 ──────────────────────────
+    def list_ext_commands(self):
+        """返回所有 ext 指令描述符（内置 + 插件声明），供宏编辑器生成参数表单。"""
+        try:
+            from core.plugin_manager import PluginManager
+            try:
+                # 旧引擎可能晚于插件扫描就绪，这里补做一次（幂等）
+                PluginManager.apply_ext_hooks()
+            except Exception:
+                pass
+
+            from automation.engine import _get_old_engine
+            oe = _get_old_engine()
+            return _ok({"items": oe.list_ext_commands()})
+        except Exception as e:
+            return _err(f"获取 ext 指令列表失败: {e}")

@@ -159,18 +159,78 @@ export function showMacroPicker(nodeId, macros, propKey) {
   modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
 }
 
-export function browseWindowList(nodeId, paramKey) {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.get_window_list) {
-    window.pywebview.api.get_window_list().then(function(res) {
-      if (res && res.ok && res.data && res.data.length > 0) {
-        showWindowPicker(nodeId, paramKey, res.data);
-      } else {
-        showToast('未找到可见窗口', 'warn');
-      }
-    }).catch(function() { showToast('无法获取窗口列表', 'err'); });
-  } else {
-    showToast('需要后端支持以选择窗口', 'inf');
+// 读取窗口列表：失败或为空时自动重试，避免偶发的一次性失败直接弹“未找到可见窗口”。
+// （窗口枚举有时会受输入法宿主/UWP 壳窗口影响而返回空，重试一次即可恢复。）
+function _fetchWindowList(retries, onDone) {
+  if (!(window.pywebview && window.pywebview.api && window.pywebview.api.get_window_list)) {
+    onDone(null, []);
+    return;
   }
+  window.pywebview.api.get_window_list().then(function(res) {
+    var list = (res && res.ok && res.data && res.data.length) ? res.data : [];
+    if (list.length > 0 || retries <= 0) {
+      onDone(res, list);
+    } else {
+      setTimeout(function() { _fetchWindowList(retries - 1, onDone); }, 150);
+    }
+  }).catch(function() {
+    if (retries > 0) {
+      setTimeout(function() { _fetchWindowList(retries - 1, onDone); }, 150);
+    } else {
+      onDone(null, []);
+    }
+  });
+}
+
+// 兜底：手动填写句柄/标题，避免“列表为空”时完全无法配置节点
+function _showManualValueInput(nodeId, paramKey, title, placeholder) {
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML =
+    '<div class="modal-content" style="width:420px">' +
+      '<div class="modal-header"><span>' + title + '</span><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()"><i class="fa-solid fa-xmark"></i></button></div>' +
+      '<div class="modal-body" style="padding:14px">' +
+        '<input type="text" id="manual-window-value" placeholder="' + placeholder + '" ' +
+          'style="width:100%;padding:8px 10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);font-size:12px;outline:none;box-sizing:border-box">' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">' +
+          '<button class="prop-btn outline" id="manual-window-cancel" style="padding:6px 16px">取消</button>' +
+          '<button class="prop-btn" id="manual-window-ok" style="padding:6px 16px">确定</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  var input = modal.querySelector('#manual-window-value');
+  if (input) input.focus();
+  modal.querySelector('#manual-window-cancel').addEventListener('click', function() { modal.remove(); });
+  modal.querySelector('#manual-window-ok').addEventListener('click', function() {
+    var val = (input.value || '').trim();
+    var node = window.AutomationCore.lgGraphObj ? window.AutomationCore.lgGraphObj.getNodeById(nodeId) : null;
+    if (node && val) {
+      node.properties[paramKey] = val;
+      window.AutomationProperty.render(node);
+      window.AutomationCore.refreshNode(node);
+    }
+    modal.remove();
+  });
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+}
+
+export function browseWindowList(nodeId, paramKey) {
+  if (!(window.pywebview && window.pywebview.api && window.pywebview.api.get_window_list)) {
+    showToast('需要后端支持以选择窗口', 'inf');
+    return;
+  }
+  _fetchWindowList(2, function(res, list) {
+    if (list.length > 0) {
+      showWindowPicker(nodeId, paramKey, list);
+    } else if (res && !res.ok) {
+      showToast('无法获取窗口列表，请手动填写句柄', 'err');
+      _showManualValueInput(nodeId, paramKey, '手动填写窗口句柄', '例如 1234567');
+    } else {
+      showToast('未找到可见窗口，请手动填写句柄', 'warn');
+      _showManualValueInput(nodeId, paramKey, '手动填写窗口句柄', '例如 1234567');
+    }
+  });
 }
 
 export function showWindowPicker(nodeId, paramKey, windows) {
@@ -230,17 +290,21 @@ export function browseProgramFile(nodeId, paramKey) {
 }
 
 export function browseWindowTitle(nodeId, paramKey) {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.get_window_list) {
-    window.pywebview.api.get_window_list().then(function(res) {
-      if (res && res.ok && res.data && res.data.length > 0) {
-        showWindowTitlePicker(nodeId, paramKey, res.data);
-      } else {
-        showToast('未找到可见窗口', 'warn');
-      }
-    }).catch(function() { showToast('无法获取窗口列表', 'err'); });
-  } else {
+  if (!(window.pywebview && window.pywebview.api && window.pywebview.api.get_window_list)) {
     showToast('需要后端支持以选择窗口', 'inf');
+    return;
   }
+  _fetchWindowList(2, function(res, list) {
+    if (list.length > 0) {
+      showWindowTitlePicker(nodeId, paramKey, list);
+    } else if (res && !res.ok) {
+      showToast('无法获取窗口列表，请手动填写标题', 'err');
+      _showManualValueInput(nodeId, paramKey, '手动填写窗口标题', '支持模糊匹配，例如 原神');
+    } else {
+      showToast('未找到可见窗口，请手动填写标题', 'warn');
+      _showManualValueInput(nodeId, paramKey, '手动填写窗口标题', '支持模糊匹配，例如 原神');
+    }
+  });
 }
 
 export function showWindowTitlePicker(nodeId, paramKey, windows) {

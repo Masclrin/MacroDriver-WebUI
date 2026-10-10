@@ -267,31 +267,56 @@ async function handleFeatures() {
 
 // ── 快捷键速查 ─────────────────────────────────
 
-function handleShortcuts() {
+// 原实现把 F8/ESC/F6/F7/F11/... 写死在页面里，与实际配置（F1/F7/F8/F10）严重不符，
+// 且对已存在的按键冲突一无所知。改为从后端读取真实绑定后渲染。
+var _SECTION_TITLE = { executor: '全局控制', recorder: '录制系统', automation_editor: '自动化编辑器' };
+var _SECTION_ORDER = ['executor', 'recorder', 'automation_editor'];
+
+async function handleShortcuts() {
   showPanel('extraResult');
   var result = document.getElementById('extraResult');
-  result.innerHTML =
-    '<h3>快捷键速查</h3>' +
-    '<h4 style="margin:12px 0 6px;color:var(--accent)">全局控制</h4>' +
-    '<table><thead><tr><th>快捷键</th><th>功能</th><th>说明</th></tr></thead><tbody>' +
-    '<tr><td><kbd>F8</kbd></td><td>全局暂停/恢复</td><td>暂停或恢复所有运行中的宏</td></tr>' +
-    '<tr><td><kbd>ESC</kbd></td><td>停止全部宏</td><td>立即停止所有运行中的宏</td></tr>' +
-    '</tbody></table>' +
-    '<h4 style="margin:16px 0 6px;color:var(--accent)">自动化编辑器</h4>' +
-    '<table><thead><tr><th>快捷键</th><th>功能</th><th>说明</th></tr></thead><tbody>' +
-    '<tr><td><kbd>F6</kbd></td><td>运行自动化</td><td>运行当前编辑的自动化脚本</td></tr>' +
-    '<tr><td><kbd>F7</kbd></td><td>暂停/恢复</td><td>暂停或恢复当前运行的自动化</td></tr>' +
-    '<tr><td><kbd>F8</kbd></td><td>停止自动化</td><td>停止当前运行的自动化</td></tr>' +
-    '<tr><td><kbd>F11</kbd></td><td>全屏切换</td><td>切换编辑器全屏模式</td></tr>' +
-    '</tbody></table>' +
-    '<h4 style="margin:16px 0 6px;color:var(--accent)">录制系统</h4>' +
-    '<table><thead><tr><th>快捷键</th><th>功能</th><th>说明</th></tr></thead><tbody>' +
-    '<tr><td><kbd>F7</kbd></td><td>开始录制</td><td>进入录制就绪状态</td></tr>' +
-    '<tr><td><kbd>F8</kbd></td><td>停止录制</td><td>停止当前录制</td></tr>' +
-    '<tr><td><kbd>F9</kbd></td><td>保存录制</td><td>保存录制结果</td></tr>' +
-    '<tr><td><kbd>F10</kbd></td><td>清空缓存</td><td>清空录制缓存数据</td></tr>' +
-    '</tbody></table>' +
-    '<p class="hint" style="margin-top:12px">快捷键可在「全局参数」面板中自定义配置。</p>';
+  result.innerHTML = '<p><span class="loading-spinner"></span>正在读取快捷键配置...</p>';
+
+  var flat = [];
+  var conflicts = [];
+  try {
+    var data = await apiCall('get_hotkey_conflicts');
+    flat = (data && data.flat) || [];
+    conflicts = (data && data.conflicts) || [];
+  } catch (e) {
+    result.innerHTML = '<h3>快捷键速查</h3><p class="fail">读取快捷键失败: ' + esc(e.message || String(e)) + '</p>';
+    return;
+  }
+
+  var html = '<h3>快捷键速查</h3>';
+  if (conflicts.length) {
+    html += '<p class="fail" style="margin:6px 0 10px">检测到 ' + conflicts.length +
+      ' 处按键冲突（同一按键被多处占用，只有最先注册的功能生效）：<strong>' +
+      conflicts.map(function (c) { return esc(String(c.key).toUpperCase()); }).join('、') +
+      '</strong>。建议在「全局参数」中改为不同按键。</p>';
+  }
+
+  _SECTION_ORDER.forEach(function (section) {
+    var rows = flat.filter(function (r) { return r.section === section; });
+    if (!rows.length) return;
+    html += '<h4 style="margin:12px 0 6px;color:var(--accent)">' + esc(_SECTION_TITLE[section] || section) + '</h4>' +
+      '<table><thead><tr><th>快捷键</th><th>功能</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      var keyText = r.value ? String(r.value).toUpperCase() : '';
+      var keyCell = r.value
+        ? '<kbd' + (r.conflict ? ' style="color:var(--danger);border-color:var(--danger)"' : '') + '>' + esc(keyText) + '</kbd>' +
+          (r.conflict ? ' <span style="color:var(--danger)">⚠冲突</span>' : '')
+        : '<span class="hint">未绑定</span>';
+      html += '<tr><td>' + keyCell + '</td><td>' + esc(r.label) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  });
+
+  if (!flat.length) {
+    html += '<p class="hint">当前没有任何已绑定的全局快捷键。</p>';
+  }
+  html += '<p class="hint" style="margin-top:12px">以上为当前实际生效的配置。可在「全局参数」面板中自定义，并按上方提示消除冲突。</p>';
+  result.innerHTML = html;
 }
 
 // ── 软件著作 ───────────────────────────────────
@@ -300,7 +325,7 @@ async function handleCopyright() {
   showPanel('extraResult');
   var result = document.getElementById('extraResult');
 
-  var versionStr = '3.1.0';
+  var versionStr = '3.3.0'; // 仅当 health API 不可用时的兜底；正常会读取实时版本
   try {
     var hdata = await apiCall('health');
     if (hdata && hdata.version) versionStr = hdata.version;

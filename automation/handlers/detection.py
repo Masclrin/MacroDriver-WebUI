@@ -30,6 +30,29 @@ def _parse_target_color(target_hex):
     return (b, g, r)
 
 
+def _invalidate_frame(ctx: ExecContext):
+    """在"持续等待/轮询检测"的每一轮强制失效共享帧缓存。
+
+    共享帧缓存的本意是：**同一次流程遍历里**的多个检测节点复用一次截图
+    （它们看到的是同一瞬间的画面，安全且省 CPU）。
+
+    但一个开了"持续等待"的检测节点，其内部 while 轮询在逻辑上是**不同瞬间**：
+    它必须能看到战斗画面的实时变化。若轮询间隔(默认 16ms)小于帧缓存 TTL，
+    轮询就会连续命中同一帧，"实时检测"退化成"盯着旧画面"，从而漏掉快速跃迁
+    的血条/技能 CD 等状态。所以轮询每轮都显式作废缓存，强制抓新帧。
+    """
+    try:
+        with ctx._data_lock:
+            cm = getattr(ctx, "_capture_manager", None)
+    except Exception:
+        cm = getattr(ctx, "_capture_manager", None)
+    if cm is not None:
+        try:
+            cm.invalidate_frame_cache()
+        except Exception:
+            pass
+
+
 def _handle_capture_source(node: ExecNode, ctx: ExecContext):
     params = node.params
     try:
@@ -120,6 +143,7 @@ def _handle_check_color(node: ExecNode, ctx: ExecContext):
 
         start_time = time.perf_counter()
         while not ctx.stop_event.is_set():
+            _invalidate_frame(ctx)
             result = _do_check()
             if result["found"]:
                 if params.get("store_var"):
@@ -182,7 +206,7 @@ def _handle_check_ocr(node: ExecNode, ctx: ExecContext):
                 match_number=match_number,
                 cache_key=node.id,
                 last_image=ctx.safe_get_cache(node.id),
-                cache_strategy=params.get("cache_strategy", "time_interval"),
+                cache_strategy=params.get("cache_strategy", "disabled"),
                 cache_interval_ms=int(_resolve_value(params.get("cache_interval_ms", 100), ctx)),
             )
 
@@ -239,6 +263,7 @@ def _handle_check_ocr(node: ExecNode, ctx: ExecContext):
 
         start_time = time.perf_counter()
         while not ctx.stop_event.is_set():
+            _invalidate_frame(ctx)
             result = _do_check()
             if result["found"]:
                 _store_result(result)
@@ -316,6 +341,28 @@ def _match_template_pyramid(img, template, threshold, method, max_levels=2):
     return fine_result, roi, template, (roi_x1, roi_y1)
 
 
+def _frame_diff_threshold(img_shape, template_shape=None):
+    """按 ROI 面积自适应的帧差阈值。
+
+    原先硬编码 diff < 2.0（整区域平均绝对差）。在「大区域 + 小目标」场景下
+    这会**永久误判为画面未变化**，从而一直返回陈旧缓存里的 found=False：
+
+        500x300 区域中出现 40x40 的技能图标（像素差约 60）：
+        diff ≈ (40*40)/(500*300) * 60 ≈ 0.64 < 2.0  →  命中"无变化"
+
+    修正方式：把阈值按「目标面积 / 区域面积」缩放，目标占比越小阈值越低。
+    同时用下限 0.02 防止纯噪声被当作"有变化"而彻底失去缓存意义。
+    """
+    h, w = img_shape[:2]
+    area = max(1, int(h) * int(w))
+    if template_shape is None:
+        return 2.0
+    th, tw = template_shape[:2]
+    tarea = max(1, int(th) * int(tw))
+    ratio = min(1.0, tarea / float(area))
+    return max(0.02, min(2.0, 16.0 * ratio))
+
+
 def do_image_match(img, template_path, threshold=0.8, method=cv2.TM_CCOEFF_NORMED,
                    pyramid_levels=2, ctx=None,
                    cache_strategy=None, cache_interval_ms=100, cache_key=None):
@@ -328,14 +375,14 @@ def do_image_match(img, template_path, threshold=0.8, method=cv2.TM_CCOEFF_NORME
     if cache_strategy and cache_key and ctx:
         last_img = ctx.safe_get_cache(cache_key)
         if cache_strategy != "disabled" and last_img is not None:
-            if img.shape == last_img.shape:
-                if cache_strategy == "frame_diff":
-                    diff = np.mean(np.abs(img.astype(float) - last_img.astype(float)))
-                    if diff < 2.0:
-                        with ctx._image_match_cache_lock:
-                            cached = ctx._image_match_cache.get(cache_key)
+                if img.shape == last_img.shape:
+                    if cache_strategy == "frame_diff":
+                        diff = np.mean(np.abs(img.astype(float) - last_img.astype(float)))
+                        if diff < _frame_diff_threshold(img.shape, template.shape):
+                            with ctx._image_match_cache_lock:
+                                cached = ctx._image_match_cache.get(cache_key)
                         if cached:
-                            return cached
+                            return dict(cached)
                 elif cache_strategy == "time_interval":
                     with ctx._image_match_cache_lock:
                         cached = ctx._image_match_cache.get(cache_key)
@@ -453,7 +500,7 @@ def _handle_check_image(node: ExecNode, ctx: ExecContext):
         timeout_ms = int(_resolve_value(params.get("wait_timeout_ms", 5000), ctx))
 
         cache_key = node.id
-        cache_strat = params.get("cache_strategy", "time_interval")
+        cache_strat = params.get("cache_strategy", "disabled")
         cache_interval = int(_resolve_value(params.get("cache_interval_ms", 100), ctx))
 
         def _cache_and_return(result):
@@ -465,9 +512,22 @@ def _handle_check_image(node: ExecNode, ctx: ExecContext):
 
         def _do_check_image():
             all_matches = None
-            img = capture_screen(region, ctx=ctx)
             template = load_template(template_path)
             if template is None:
+                return {"found": False, "match_x": 0, "match_y": 0, "confidence": 0.0}
+
+            # 缓存判定移到截图之前：命中时连最贵的那一步也省掉。
+            # （原实现先花 13.7ms 全屏截图，再判定缓存并丢弃刚截的图）
+            if cache_strat == "time_interval" and cache_interval > 0:
+                with ctx._image_match_cache_lock:
+                    cached = ctx._image_match_cache.get(cache_key)
+                if cached:
+                    now = time.perf_counter()
+                    if (now - cached.get("_timestamp", 0)) * 1000 < cache_interval:
+                        return dict(cached)
+
+            img = capture_screen(region, ctx=ctx)
+            if img is None:
                 return {"found": False, "match_x": 0, "match_y": 0, "confidence": 0.0}
             last_img = ctx.safe_get_cache(cache_key)
 
@@ -475,18 +535,11 @@ def _handle_check_image(node: ExecNode, ctx: ExecContext):
                 if img.shape == last_img.shape:
                     if cache_strat == "frame_diff":
                         diff = np.mean(np.abs(img.astype(float) - last_img.astype(float)))
-                        if diff < 2.0:
+                        if diff < _frame_diff_threshold(img.shape, template.shape):
                             with ctx._image_match_cache_lock:
                                 cached = ctx._image_match_cache.get(cache_key)
                             if cached:
-                                return cached
-                    elif cache_strat == "time_interval":
-                        with ctx._image_match_cache_lock:
-                            cached = ctx._image_match_cache.get(cache_key)
-                        if cached:
-                            now = time.perf_counter()
-                            if (now - cached.get("_timestamp", 0)) * 1000 < cache_interval:
-                                return cached
+                                return dict(cached)
 
             ctx.safe_set_cache(cache_key, img)
 
@@ -623,6 +676,7 @@ def _handle_check_image(node: ExecNode, ctx: ExecContext):
 
         start_time = time.perf_counter()
         while not ctx.stop_event.is_set():
+            _invalidate_frame(ctx)
             check_result = _do_check_image()
             if check_result["found"]:
                 ctx.check_results[f"{node.id}.result"] = True
@@ -757,6 +811,7 @@ def _handle_check_screen(node: ExecNode, ctx: ExecContext):
 
         start_time = time.perf_counter()
         while not ctx.stop_event.is_set():
+            _invalidate_frame(ctx)
             found = _do_check_screen()
             if found:
                 ctx.check_results[f"{node.id}.result"] = True
@@ -1051,6 +1106,7 @@ def _handle_check_digits(node: ExecNode, ctx: ExecContext):
 
         start_time = time.perf_counter()
         while not ctx.stop_event.is_set():
+            _invalidate_frame(ctx)
             digit_str, avg_conf = _do_check()
             if digit_str is not None and _check_compare(digit_str):
                 val = int(digit_str)

@@ -185,6 +185,16 @@ function _renderInlineField(nodeId, key, schema, val) {
         vlHtml += '</div>';
         return vlHtml;
     }
+    if (schema.type === 'stage_list') {
+        // 阶段列表在节点内只读展示，完整编辑在属性面板（避免节点内拖拽/换行干扰）
+        var stages = String(val || '').split('→').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+        var slText = stages.length ? stages.join(' → ') : '（未设置阶段，点开属性面板编辑）';
+        return '<span class="nf nf-ro" data-nid="' + nid + '" data-key="' + k + '" title="点击在属性面板编辑阶段列表">' + _escapeHtml(slText) + '</span>';
+    }
+    if (schema.type === 'stage_ref') {
+        var refText = (val !== null && val !== undefined && String(val).length) ? String(val) : '（不回退）';
+        return '<span class="nf nf-ro" data-nid="' + nid + '" data-key="' + k + '" title="点击在属性面板选择阶段">' + _escapeHtml(refText) + '</span>';
+    }
     return '<input type="text" class="nf nf-txt" data-nid="' + nid + '" data-key="' + k + '" value="' + (val !== null && val !== undefined ? _escapeHtml(val) : '') + '">';
 }
 

@@ -37,7 +37,7 @@ if not exist "%FIRST_RUN_MARKER%" (
     echo   │                                                    │
     echo   │  4. 快捷键速查：                                   │
     echo   │     F8  = 全局暂停/恢复    ESC = 停止全部宏        │
-    echo   │     F6  = 运行自动化      F7  = 暂停自动化        │
+    echo   │     F1  = 运行自动化      F7  = 暂停自动化        │
     echo   │                                                    │
     echo   │  5. 详细说明见 docs\使用说明书.md                  │
     echo   └──────────────────────────────────────────────────┘
