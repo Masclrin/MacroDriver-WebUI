@@ -7,7 +7,7 @@ def register(registry):
         "inputs": [],
         "outputs": [{"name": "value", "type": "number"}],
         "params_schema": {
-            "value": {"type": "number", "default": 0, "description": "常量值", "varRef": True},
+            "value": {"type": "number", "default": 0, "description": "常量值"},
         },
         "handler": "_handle_const_number",
     })
@@ -20,7 +20,7 @@ def register(registry):
         "inputs": [],
         "outputs": [{"name": "value", "type": "string"}],
         "params_schema": {
-            "value": {"type": "string", "default": "", "description": "常量字符串", "varRef": True},
+            "value": {"type": "string", "default": "", "description": "常量字符串"},
         },
         "handler": "_handle_const_string",
     })
@@ -33,7 +33,7 @@ def register(registry):
         "inputs": [],
         "outputs": [{"name": "value", "type": "boolean"}],
         "params_schema": {
-            "value": {"type": "boolean", "default": True, "description": "布尔值", "display_names": {"true": "真", "false": "假"}},
+            "value": {"type": "bool", "default": True, "description": "布尔值"},
         },
         "handler": "_handle_const_bool",
     })
@@ -46,9 +46,9 @@ def register(registry):
         "inputs": [{"name": "A", "type": "number"}, {"name": "B", "type": "number"}],
         "outputs": [{"name": "result", "type": "number"}],
         "params_schema": {
-            "op": {"type": "string", "enum": ["+", "-", "*", "/", "%", "^", "min", "max"], "default": "+", "description": "运算符", "display_names": {"+": "加法(+)", "-": "减法(-)", "*": "乘法(×)", "/": "除法(÷)", "%": "取余(模)", "^": "乘方(幂)", "min": "取最小值", "max": "取最大值"}},
-            "a": {"type": "number", "default": 0, "description": "输入A", "varRef": True},
-            "b": {"type": "number", "default": 0, "description": "输入B", "varRef": True},
+            "op": {"type": "string", "enum": ["add", "sub", "mul", "div", "mod", "pow", "min", "max"], "default": "add", "description": "运算符"},
+            "a": {"type": "number", "default": 0, "description": "输入A"},
+            "b": {"type": "number", "default": 0, "description": "输入B"},
         },
         "handler": "_handle_math_op",
     })
@@ -61,9 +61,8 @@ def register(registry):
         "inputs": [{"name": "x", "type": "number"}],
         "outputs": [{"name": "result", "type": "number"}],
         "params_schema": {
-            "func": {"type": "string", "enum": ["abs", "round", "floor", "ceil", "sqrt", "sin", "cos", "log", "negate"], "default": "abs", "description": "数学函数", "display_names": {"abs": "绝对值(|x|)", "round": "四舍五入", "floor": "向下取整(⌊x⌋)", "ceil": "向上取整(⌈x⌉)", "sqrt": "平方根(√)", "sin": "正弦(sin)", "cos": "余弦(cos)", "log": "自然对数(ln)", "negate": "取负(-x)"}},
-            "x": {"type": "number", "default": 0, "description": "输入值(sin/cos为弧度)", "varRef": True},
-            "digits": {"type": "number", "default": 0, "description": "小数位数(round专用)", "showWhen": "func=round", "varRef": True},
+            "func": {"type": "string", "enum": ["abs", "round", "floor", "ceil", "sqrt", "sin", "cos", "log", "negate"], "default": "abs", "description": "函数"},
+            "x": {"type": "number", "default": 0, "description": "输入值"},
         },
         "handler": "_handle_math_func",
     })
@@ -76,9 +75,9 @@ def register(registry):
         "inputs": [{"name": "A", "type": "boolean"}, {"name": "B", "type": "boolean"}],
         "outputs": [{"name": "result", "type": "boolean"}],
         "params_schema": {
-            "op": {"type": "string", "enum": ["and", "or", "xor", "not", "nand", "nor"], "default": "and", "description": "逻辑运算", "display_names": {"and": "与(AND, 全真则真)", "or": "或(OR, 有真则真)", "xor": "异或(XOR, 不同为真)", "not": "非(NOT, 取反)", "nand": "与非(NAND)", "nor": "或非(NOR)"}},
-            "a": {"type": "bool", "default": True, "description": "输入A", "varRef": True},
-            "b": {"type": "bool", "default": True, "description": "输入B", "showWhen": "op=and,op=or,op=xor,op=nand,op=nor", "varRef": True},
+            "op": {"type": "string", "enum": ["and", "or", "xor", "not", "nand", "nor"], "default": "and", "description": "逻辑运算"},
+            "a": {"type": "bool", "default": True, "description": "输入A"},
+            "b": {"type": "bool", "default": True, "description": "输入B"},
         },
         "handler": "_handle_logic_op",
     })
@@ -91,9 +90,9 @@ def register(registry):
         "inputs": [{"name": "A", "type": "number"}, {"name": "B", "type": "number"}],
         "outputs": [{"name": "result", "type": "boolean"}],
         "params_schema": {
-            "op": {"type": "string", "enum": ["eq", "ne", "gt", "lt", "ge", "le"], "default": "gt", "description": "比较运算符", "display_names": {"eq": "等于(==)", "ne": "不等于(!=)", "gt": "大于(>)", "lt": "小于(<)", "ge": "大于等于(≥)", "le": "小于等于(≤)"}},
-            "a": {"type": "number", "default": 0, "description": "输入A", "varRef": True},
-            "b": {"type": "number", "default": 0, "description": "输入B", "varRef": True},
+            "op": {"type": "string", "enum": ["eq", "ne", "gt", "lt", "ge", "le"], "default": "gt", "description": "比较运算符"},
+            "a": {"type": "number", "default": 0, "description": "输入A"},
+            "b": {"type": "number", "default": 0, "description": "输入B"},
         },
         "handler": "_handle_compare",
     })
@@ -106,17 +105,11 @@ def register(registry):
         "inputs": [{"name": "str", "type": "string"}],
         "outputs": [{"name": "result", "type": "string"}],
         "params_schema": {
-            "op": {"type": "string", "enum": ["concat", "replace", "upper", "lower", "trim", "substring", "split_index", "regex_extract"], "default": "concat", "description": "操作类型", "display_names": {"concat": "拼接(合并)", "replace": "替换(查找替换)", "upper": "转大写", "lower": "转小写", "trim": "去首尾空格", "substring": "截取子串", "split_index": "分割取段", "regex_extract": "正则提取"}},
-            "input_str": {"type": "string", "default": "", "description": "输入字符串", "varRef": True},
-            "concat_str": {"type": "string", "default": "", "description": "要拼接的字符串", "showWhen": "op=concat", "varRef": True},
-            "search_str": {"type": "string", "default": "", "description": "要查找的文本", "showWhen": "op=replace", "varRef": True},
-            "replace_str": {"type": "string", "default": "", "description": "替换为", "showWhen": "op=replace", "varRef": True},
-            "start_pos": {"type": "number", "default": 0, "description": "起始位置(从0开始)", "showWhen": "op=substring", "varRef": True},
-            "length": {"type": "number", "default": 0, "description": "截取长度(0=到末尾)", "showWhen": "op=substring", "varRef": True},
-            "delimiter": {"type": "string", "default": ",", "description": "分隔符", "showWhen": "op=split_index", "varRef": True},
-            "index": {"type": "number", "default": 0, "description": "取第几段(从0开始)", "showWhen": "op=split_index", "varRef": True},
-            "pattern": {"type": "string", "default": "", "description": "正则表达式", "showWhen": "op=regex_extract", "varRef": True},
-            "group": {"type": "number", "default": 0, "description": "捕获组编号(0=整个匹配)", "showWhen": "op=regex_extract", "varRef": True},
+            "op": {"type": "string", "enum": ["concat", "replace", "upper", "lower", "trim", "substring", "split_index"], "default": "concat", "description": "操作类型"},
+            "input_str": {"type": "string", "default": "", "description": "输入字符串"},
+            "param_a": {"type": "string", "default": "", "description": "参数A"},
+            "param_b": {"type": "string", "default": "", "description": "参数B"},
+            "param_c": {"type": "string", "default": "", "description": "参数C"},
         },
         "handler": "_handle_string_op",
     })
@@ -129,9 +122,9 @@ def register(registry):
         "inputs": [{"name": "cond", "type": "boolean"}, {"name": "if_true", "type": "any"}, {"name": "if_false", "type": "any"}],
         "outputs": [{"name": "result", "type": "any"}],
         "params_schema": {
-            "cond_var": {"type": "string", "default": "", "description": "条件变量名", "varRef": True},
-            "true_val": {"type": "string", "default": "", "description": "为真时的值", "varRef": True},
-            "false_val": {"type": "string", "default": "", "description": "为假时的值", "varRef": True},
+            "cond_var": {"type": "string", "default": "", "description": "条件变量名"},
+            "true_val": {"type": "string", "default": "", "description": "为真时的值"},
+            "false_val": {"type": "string", "default": "", "description": "为假时的值"},
         },
         "handler": "_handle_condition",
     })
@@ -144,7 +137,7 @@ def register(registry):
         "inputs": [{"name": "in", "type": "flow"}],
         "outputs": [{"name": "next", "type": "flow"}],
         "params_schema": {
-            "ms": {"type": "number", "default": 1000, "description": "延迟时间(ms)", "varRef": True},
+            "ms": {"type": "number", "default": 1000, "description": "延迟时间(ms)"},
         },
         "handler": "_handle_utility_delay",
     })
@@ -163,12 +156,12 @@ def register(registry):
         ],
         "params_schema": {
             "name": {"type": "string", "default": "", "description": "书签名称"},
-            "mode": {"type": "string", "enum": ["screen", "window", "relative"], "default": "screen", "description": "坐标模式", "display_names": {"screen": "屏幕坐标", "window": "窗口坐标", "relative": "相对坐标(0~1)"}},
-            "x": {"type": "number", "default": 0, "description": "X坐标", "varRef": True},
-            "y": {"type": "number", "default": 0, "description": "Y坐标", "varRef": True},
-            "w": {"type": "number", "default": 0, "description": "宽度", "varRef": True},
-            "h": {"type": "number", "default": 0, "description": "高度", "varRef": True},
-            "hwnd_var": {"type": "string", "default": "", "description": "窗口句柄变量", "showWhen": "mode=window,mode=relative", "varRef": True},
+            "mode": {"type": "enum", "default": "screen", "options": ["screen", "window", "relative"], "description": "坐标模式"},
+            "x": {"type": "number", "default": 0, "description": "X坐标"},
+            "y": {"type": "number", "default": 0, "description": "Y坐标"},
+            "w": {"type": "number", "default": 0, "description": "宽度"},
+            "h": {"type": "number", "default": 0, "description": "高度"},
+            "hwnd_var": {"type": "string", "default": "", "description": "窗口句柄变量"},
             "remark": {"type": "string", "default": "", "description": "备注"},
         },
         "handler": "_handle_bookmark",

@@ -65,8 +65,6 @@ class INPUT_STR(ctypes.Structure):
 VK_MAP = {
     "left": 0x01, "right": 0x02, "cancel": 0x03, "middle": 0x04, "back": 0x08,
     "tab": 0x09, "enter": 0x0D, "shift": 0x10, "ctrl": 0x11, "alt": 0x12,
-    "shift_l": 0xA0, "shift_r": 0xA1, "ctrl_l": 0xA2, "ctrl_r": 0xA3,
-    "alt_l": 0xA4, "alt_r": 0xA5,
     "pause": 0x13, "caps_lock": 0x14, "esc": 0x1B, "space": 0x20, "page_up": 0x21,
     "page_down": 0x22, "end": 0x23, "home": 0x24, "left_arrow": 0x25,
     "up_arrow": 0x26, "right_arrow": 0x27, "down_arrow": 0x28, "print_screen": 0x2C,
@@ -134,45 +132,17 @@ def set_cursor_pos(x, y):
     user32.SetCursorPos(int(x), int(y))
 
 
-class _POINT(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-
-
-def get_cursor_pos():
-    """返回当前光标位置 (x, y)；失败时返回 (0, 0)。
-
-    move_to 需要从当前位置插值到目标点，缺少这个原语会导致
-    第一步把光标瞬移到屏幕左上角附近。
-    """
-    try:
-        user32.GetCursorPos.restype = ctypes.c_bool
-        user32.GetCursorPos.argtypes = [ctypes.POINTER(_POINT)]
-        pt = _POINT()
-        if user32.GetCursorPos(ctypes.byref(pt)):
-            return int(pt.x), int(pt.y)
-    except Exception:
-        pass
-    return 0, 0
-
-
 def send_scroll_sendinput(delta):
     user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, int(delta), 0)
 
 
-def _is_key_pressed(vk_code):
-    return bool(user32.GetAsyncKeyState(vk_code) & 0x8000)
-
-
 def release_all_modifiers():
-    for vk in (get_vk("shift"), get_vk("ctrl"), get_vk("alt")):
-        if vk and _is_key_pressed(vk):
-            send_key_sendinput(vk, True)
-    if _is_key_pressed(0x01):
-        send_click_sendinput(left=True, up=True)
-    if _is_key_pressed(0x02):
-        send_click_sendinput(left=False, up=True)
-    if _is_key_pressed(0x04):
-        send_click_sendinput(left=None, up=True)
+    send_key_sendinput(get_vk("shift"), True)
+    send_key_sendinput(get_vk("ctrl"), True)
+    send_key_sendinput(get_vk("alt"), True)
+    user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+    user32.mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+    user32.mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
 
 
 class InterceptionSession:

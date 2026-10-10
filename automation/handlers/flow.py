@@ -8,7 +8,6 @@ def _handle_flow_start(node: ExecNode, ctx: ExecContext):
 
 
 def _handle_flow_end(node: ExecNode, ctx: ExecContext):
-    ctx._reached_end = True
     ctx.stop_event.set()
     ctx.task_pool.stop_all()
 

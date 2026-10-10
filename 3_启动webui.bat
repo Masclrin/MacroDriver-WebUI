@@ -1,30 +1,35 @@
 @echo off
 chcp 65001 >nul
+
+:: ========================================================
+:: 宏驱动 WebUI - 直接启动脚本
+:: ========================================================
+
+:: 切换到脚本所在目录（项目根目录）
 cd /d "%~dp0"
 
-set "PY_CMD="
+:: 检查 Python 命令是否存在
 where py >nul 2>&1
-if not errorlevel 1 set "PY_CMD=py -3"
-if not defined PY_CMD (
+if %errorlevel% equ 0 (
+    set "PY_CMD=py -3"
+) else (
     where python >nul 2>&1
-    if not errorlevel 1 set "PY_CMD=python"
-)
-if not defined PY_CMD (
-    echo [Error] Python not found.
-    echo Please run bin\1_install.bat first.
-    pause
-    exit /b 1
+    if %errorlevel% equ 0 (
+        set "PY_CMD=python"
+    ) else (
+        echo [错误] 未找到 Python 命令。
+        echo        请先运行 bin\1_管理员安装全部并启动WebUI.bat 进行环境配置。
+        pause
+        exit /b 1
+    )
 )
 
-echo [Info] Python: %PY_CMD%
-echo [Info] Dir:    %CD%
-echo [Start] Launching WebUI...
+:: 启动 WebUI
+echo [启动] 正在启动宏驱动 WebUI...
 %PY_CMD% "webui_app.py"
-set "_EXIT=%errorlevel%"
-echo.
-if %_EXIT% neq 0 (
-    echo [Error] Launch failed, exit code: %_EXIT%
-) else (
-    echo [Done] WebUI exited normally.
+if errorlevel 1 (
+    echo.
+    echo [错误] 启动失败。
+    echo        请先运行 bin\1_管理员安装全部并启动WebUI.bat 进行环境配置。
+    pause
 )
-pause

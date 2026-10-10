@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from automation.registry import PluginRegistry
 
 
 @dataclass
@@ -9,16 +10,12 @@ class ExecNode:
     position: dict
     flow_children: dict = field(default_factory=dict)
     data_inputs: dict = field(default_factory=dict)
-    flow_inputs: dict = field(default_factory=dict)
 
     def get_flow_children(self, port_name):
         return self.flow_children.get(port_name, [])
 
     def get_data_inputs(self, port_name):
         return self.data_inputs.get(port_name, [])
-
-    def get_flow_inputs(self, port_name):
-        return self.flow_inputs.get(port_name, [])
 
 
 @dataclass
@@ -27,6 +24,7 @@ class ExecGraph:
     variables: dict = field(default_factory=dict)
     settings: dict = field(default_factory=dict)
     entry_node_id: str = None
+    monitor_entry_ids: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     errors: list = field(default_factory=list)
 
@@ -63,10 +61,6 @@ def parse_graph(json_data: dict) -> ExecGraph:
 
         if conn_type == "flow":
             from_node.flow_children.setdefault(from_port, []).append(to_node_id)
-            to_node.flow_inputs.setdefault(to_port, []).append({
-                "source_node_id": from_node_id,
-                "source_port": from_port,
-            })
             has_flow_input.add(to_node_id)
         elif conn_type == "data":
             to_node.data_inputs.setdefault(to_port, []).append({
@@ -80,9 +74,7 @@ def parse_graph(json_data: dict) -> ExecGraph:
     if start_nodes:
         if len(start_nodes) > 1:
             graph.errors.append(f"图中存在 {len(start_nodes)} 个开始节点，必须且只能有 1 个")
-            graph.entry_node_id = None
-        else:
-            graph.entry_node_id = start_nodes[0]
+        graph.entry_node_id = start_nodes[0]
 
         for nid in start_nodes:
             node = graph.nodes[nid]
@@ -98,8 +90,44 @@ def parse_graph(json_data: dict) -> ExecGraph:
             if node.data_inputs:
                 graph.errors.append(f"结束节点 {nid} 不允许有数据输入连接")
     else:
-        graph.errors.append("图中缺少开始节点(flow/start)，请添加以明确执行入口")
-        graph.entry_node_id = None
+        entry_candidates = [nid for nid in graph.nodes if nid not in has_flow_input]
+        filtered_candidates = []
+        for nid in entry_candidates:
+            node = graph.nodes[nid]
+            if node.type.startswith("utility/const_") or node.type in ("utility/comment", "utility/group", "utility/bookmark"):
+                continue
+            node_def = PluginRegistry.get_node(node.type)
+            if node_def:
+                has_flow_output = any(p.get("type") == "flow" for p in node_def.get("outputs", []))
+                has_flow_input_port = any(p.get("type") == "flow" for p in node_def.get("inputs", []))
+                if has_flow_input_port and not has_flow_output:
+                    continue
+                if not has_flow_output and not node.type.startswith("monitor/"):
+                    continue
+            filtered_candidates.append(nid)
+
+        if filtered_candidates:
+            action_nodes = []
+            monitor_nodes = []
+            other_nodes = []
+            for nid in filtered_candidates:
+                node = graph.nodes[nid]
+                if node.type.startswith("action/") or node.type.startswith("script_block/"):
+                    action_nodes.append(nid)
+                elif node.type.startswith("monitor/"):
+                    monitor_nodes.append(nid)
+                else:
+                    other_nodes.append(nid)
+            if action_nodes:
+                graph.entry_node_id = action_nodes[0]
+            elif other_nodes:
+                graph.entry_node_id = other_nodes[0]
+            elif monitor_nodes:
+                graph.entry_node_id = monitor_nodes[0]
+        graph.warnings.append("图中缺少开始节点(flow/start)，建议添加以明确执行入口")
+
+    graph.monitor_entry_ids = [nid for nid, node in graph.nodes.items()
+                               if node.type.startswith("monitor/")]
 
     for nid, node in graph.nodes.items():
         if node.type == "control/goto":
@@ -155,6 +183,9 @@ def parse_graph(json_data: dict) -> ExecGraph:
                             f"节点 {nid}({node.type}) 引用了不存在的节点 '{first_part}' 的输出"
                         )
 
+    for mid in graph.monitor_entry_ids:
+        _check_goto_in_flow(graph, mid, set(), graph.errors)
+
     for nid, node in graph.nodes.items():
         if node.type == "control/loop_while":
             cond_sources = node.data_inputs.get("cond", [])
@@ -169,18 +200,10 @@ def parse_graph(json_data: dict) -> ExecGraph:
                             f"条件值在循环中不会更新，可能导致无限循环或立即退出"
                         )
 
-    _check_fork_join_cycles(graph)
-
-    for nid, node in graph.nodes.items():
-        if node.type in ("monitor/monitor_color", "monitor/monitor_ocr", "monitor/monitor_timer", "monitor/monitor_time"):
-            for port_name in node.flow_children:
-                for child_id in node.flow_children[port_name]:
-                    _check_goto_in_flow(graph, child_id, set(), graph.warnings)
-
     return graph
 
 
-def _check_goto_in_flow(graph, node_id, visited, warnings):
+def _check_goto_in_flow(graph, node_id, visited, errors):
     if node_id in visited:
         return
     visited.add(node_id)
@@ -188,52 +211,11 @@ def _check_goto_in_flow(graph, node_id, visited, warnings):
     if node is None:
         return
     if node.type == "control/goto":
-        warnings.append(f"监视器节点的触发分支中包含跳转节点 {node_id}，监视器中跳转可能导致未定义行为")
+        errors.append(f"监视器节点的触发分支中包含跳转节点 {node_id}，监视器中不允许使用跳转")
         return
     for port_name in node.flow_children:
         for child_id in node.flow_children[port_name]:
-            _check_goto_in_flow(graph, child_id, visited, warnings)
-
-
-def _check_fork_join_cycles(graph):
-    fork_join_nodes = {}
-    for nid, node in graph.nodes.items():
-        if node.type in ("control/fork", "control/race", "control/join"):
-            fork_join_nodes[nid] = node
-
-    for nid in fork_join_nodes:
-        visited = set()
-        path = []
-        if _detect_cycle_dfs(graph, nid, visited, path, fork_join_nodes):
-            break
-
-
-def _detect_cycle_dfs(graph, node_id, visited, path, fork_join_nodes):
-    if node_id in path:
-        cycle_start = path.index(node_id)
-        cycle = path[cycle_start:] + [node_id]
-        has_fork = any(graph.nodes.get(nid) and graph.nodes.get(nid).type in ("control/fork", "control/race")
-                       for nid in cycle)
-        if has_fork:
-            graph.errors.append(f"检测到 Fork/Join 循环: {' -> '.join(cycle)}")
-            return True
-        return False
-
-    if node_id in visited:
-        return False
-
-    visited.add(node_id)
-    path.append(node_id)
-
-    node = graph.nodes.get(node_id)
-    if node:
-        for port_name in node.flow_children:
-            for child_id in node.flow_children[port_name]:
-                if _detect_cycle_dfs(graph, child_id, visited, path, fork_join_nodes):
-                    return True
-
-    path.pop()
-    return False
+            _check_goto_in_flow(graph, child_id, visited, errors)
 
 
 def _collect_flow_children(graph, node_id, port_name, visited, result):
@@ -264,20 +246,10 @@ def serialize_graph(graph: ExecGraph) -> dict:
     for node in graph.nodes.values():
         for port_name, child_ids in node.flow_children.items():
             for child_id in child_ids:
-                child_node = graph.nodes.get(child_id)
-                to_port = "in"
-                if child_node:
-                    for inp_port, sources in child_node.flow_inputs.items():
-                        for src in sources:
-                            if src["source_node_id"] == node.id and src["source_port"] == port_name:
-                                to_port = inp_port
-                                break
-                        if to_port != "in":
-                            break
                 connections.append({
                     "id": str(conn_id),
                     "from": {"node": node.id, "port": port_name},
-                    "to": {"node": child_id, "port": to_port},
+                    "to": {"node": child_id, "port": "in"},
                     "type": "flow",
                 })
                 conn_id += 1

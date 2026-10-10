@@ -32,6 +32,7 @@ echo [步骤2/2] 安装 Interception 驱动...
 
 echo.
 echo [完成] 驱动重置已执行。
+echo [提示] 请立即重启电脑，再测试外接键盘。
 echo.
 pause
 exit /b 0

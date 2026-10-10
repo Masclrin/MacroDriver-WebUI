@@ -80,106 +80,62 @@ def get_window_client_rect(hwnd):
 
 
 def resolve_coords(mode, x, y, hwnd=None):
-    try:
-        x = float(x)
-        y = float(y)
-    except (ValueError, TypeError):
-        return (0, 0)
     if mode == "screen":
-        return (int(x), int(y))
+        dpi_scale = get_monitor_dpi_scale(int(x * get_dpi_scale()), int(y * get_dpi_scale()))
+        result = int(x * dpi_scale), int(y * dpi_scale)
+        return result
     elif mode == "window":
         if hwnd:
             cx, cy = get_window_client_origin(hwnd)
-            result = int(cx + x), int(cy + y)
+            dpi_scale = get_monitor_dpi_scale(cx, cy)
+            result = int(cx + x * dpi_scale), int(cy + y * dpi_scale)
             return result
         _logger.warning("window 模式缺少 hwnd，将 fallback 为 screen 模式")
-        result = int(x), int(y)
+        dpi_scale = get_monitor_dpi_scale(int(x * get_dpi_scale()), int(y * get_dpi_scale()))
+        result = int(x * dpi_scale), int(y * dpi_scale)
         return result
     elif mode == "relative":
         if hwnd:
             cx, cy, cw, ch = get_window_client_rect(hwnd)
             result = int(cx + x * cw), int(cy + y * ch)
             return result
-        sw = ctypes.windll.user32.GetSystemMetrics(0)
-        sh = ctypes.windll.user32.GetSystemMetrics(1)
-        if sw <= 0 or sh <= 0:
-            sw, sh = 1920, 1080
-        _logger.warning("relative 模式缺少 hwnd，将 fallback 为屏幕尺寸 %dx%d", sw, sh)
-        result = int(x * sw), int(y * sh)
+        _logger.warning("relative 模式缺少 hwnd，将 fallback 为 1920x1080 默认尺寸")
+        result = int(x * 1920), int(y * 1080)
         return result
     return int(x), int(y)
 
 
 def resolve_region(mode, rect, hwnd=None):
-    try:
-        r = [float(v) for v in rect]
-    except (ValueError, TypeError):
-        r = [0, 0, 0, 0]
     if mode == "screen":
-        return (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+        approx_x = int(rect[0] * get_dpi_scale())
+        approx_y = int(rect[1] * get_dpi_scale())
+        dpi_scale = get_monitor_dpi_scale(approx_x, approx_y)
+        result = (int(rect[0] * dpi_scale), int(rect[1] * dpi_scale),
+                int(rect[2] * dpi_scale), int(rect[3] * dpi_scale))
+        return result
     elif mode == "window":
         if hwnd:
             cx, cy = get_window_client_origin(hwnd)
-            result = (int(cx + r[0]), int(cy + r[1]),
-                    int(r[2]), int(r[3]))
+            dpi_scale = get_monitor_dpi_scale(cx, cy)
+            result = (int(cx + rect[0] * dpi_scale), int(cy + rect[1] * dpi_scale),
+                    int(rect[2] * dpi_scale), int(rect[3] * dpi_scale))
             return result
         _logger.warning("window 模式缺少 hwnd，将 fallback 为 screen 模式")
-        result = (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+        approx_x = int(rect[0] * get_dpi_scale())
+        approx_y = int(rect[1] * get_dpi_scale())
+        dpi_scale = get_monitor_dpi_scale(approx_x, approx_y)
+        result = (int(rect[0] * dpi_scale), int(rect[1] * dpi_scale),
+                int(rect[2] * dpi_scale), int(rect[3] * dpi_scale))
         return result
     elif mode == "relative":
         if hwnd:
             cx, cy, cw, ch = get_window_client_rect(hwnd)
-            result = (int(cx + r[0] * cw), int(cy + r[1] * ch),
-                    int(r[2] * cw), int(r[3] * ch))
+            result = (int(cx + rect[0] * cw), int(cy + rect[1] * ch),
+                    int(rect[2] * cw), int(rect[3] * ch))
             return result
-        sw = ctypes.windll.user32.GetSystemMetrics(0)
-        sh = ctypes.windll.user32.GetSystemMetrics(1)
-        if sw <= 0 or sh <= 0:
-            sw, sh = 1920, 1080
-        _logger.warning("relative 模式缺少 hwnd，将 fallback 为屏幕尺寸 %dx%d", sw, sh)
-        result = (int(r[0] * sw), int(r[1] * sh),
-                int(r[2] * sw), int(r[3] * sh))
+        _logger.warning("relative 模式缺少 hwnd，将 fallback 为 1920x1080 默认尺寸")
+        result = (int(rect[0] * 1920), int(rect[1] * 1080),
+                int(rect[2] * 1920), int(rect[3] * 1080))
         return result
-    result = (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+    result = (int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]))
     return result
-
-
-def enum_monitor_rects():
-    class RECT(ctypes.Structure):
-        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                     ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-    monitors = []
-
-    def _callback(hmon, hdc, lprect, lparam):
-        rect = lprect.contents
-        monitors.append((rect.left, rect.top, rect.right, rect.bottom))
-        return True
-
-    MONITORENUMPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p,
-        ctypes.POINTER(RECT), ctypes.c_long
-    )
-    ctypes.windll.user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(_callback), 0)
-    return monitors
-
-
-def mss_index_to_dxgi_output(mss_monitor_index):
-    try:
-        import mss
-        sct = mss.mss()
-        if mss_monitor_index < 0 or mss_monitor_index >= len(sct.monitors) - 1:
-            return 0
-        target = sct.monitors[mss_monitor_index + 1]
-        target_left = target["left"]
-        target_top = target["top"]
-
-        win_monitors = enum_monitor_rects()
-        for dxgi_idx, (left, top, right, bottom) in enumerate(win_monitors):
-            if left == target_left and top == target_top:
-                return dxgi_idx
-
-        _logger.warning("mss显示器%d未匹配到DXGI output，使用索引0", mss_monitor_index)
-        return 0
-    except Exception as e:
-        _logger.warning("mss_index_to_dxgi_output 失败: %s", e)
-        return 0

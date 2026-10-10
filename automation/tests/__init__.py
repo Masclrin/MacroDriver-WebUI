@@ -41,7 +41,6 @@ class TestCompilerParseGraph(unittest.TestCase):
         }
         graph = parse_graph(data)
         self.assertTrue(any("2 个开始节点" in e for e in graph.errors))
-        self.assertIsNone(graph.entry_node_id)
 
     def test_end_node_flow_output_error(self):
         data = {
@@ -86,7 +85,7 @@ class TestCompilerParseGraph(unittest.TestCase):
         graph = parse_graph(data)
         self.assertEqual(graph.entry_node_id, "2")
 
-    def test_monitor_nodes_no_longer_auto_collected(self):
+    def test_monitor_entry_ids_collected_by_type(self):
         data = {
             "graph": {
                 "nodes": [
@@ -98,7 +97,9 @@ class TestCompilerParseGraph(unittest.TestCase):
             }
         }
         graph = parse_graph(data)
-        self.assertFalse(hasattr(graph, 'monitor_entry_ids'))
+        self.assertIn("2", graph.monitor_entry_ids)
+        self.assertIn("3", graph.monitor_entry_ids)
+        self.assertEqual(len(graph.monitor_entry_ids), 2)
 
     def test_goto_target_validation(self):
         data = {

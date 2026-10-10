@@ -16,18 +16,7 @@ import ctypes
 import json
 import random
 import gc
-import sys as _sys
 from collections import deque
-
-# 允许以任意方式加载本文件（含 importlib 自定义别名）时都能找到宽松解析器
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-if _THIS_DIR not in _sys.path:
-    _sys.path.insert(0, _THIS_DIR)
-try:
-    from lenient_json import loads_lenient as _loads_lenient
-except Exception:  # noqa: BLE001 - 极端情况下退回标准解析，绝不阻断启动
-    _loads_lenient = None
-
 from engine.precision import (
     boost_process_priority,
     boost_thread_priority,
@@ -35,8 +24,6 @@ from engine.precision import (
     precise_sleep_v5 as precise_sleep,
     auto_warmup,
     set_system_timer_resolution_enabled,
-    set_process_priority_tier,
-    restore_process_priority,
 )
 from pynput import keyboard, mouse
 from engine.input_sendinput import (
@@ -47,7 +34,7 @@ from engine.input_sendinput import (
     MOUSEINPUT, KEYBDINPUT, HARDWAREINPUT, INPUT_U, INPUT_STR,
     VK_MAP, _VK_TO_NAME, get_vk,
     send_key_sendinput, send_click_sendinput, send_move_sendinput,
-    set_cursor_pos, get_cursor_pos, send_scroll_sendinput, release_all_modifiers,
+    set_cursor_pos, send_scroll_sendinput, release_all_modifiers,
 )
 
 # —— 配置自定义常量 ——
@@ -87,6 +74,7 @@ USE_INTERCEPTION_MOUSE = True        # 鼠标是否使用 Interception（左键�
 
 # 时间线执行模式
 # absolute: 按绝对时间轴执行（低开销，精度够用）； relative_compensated: 按相对延迟执行（补偿设计）
+TIMELINE_EXECUTION_MODE = "relative_compensated"
 TIMELINE_EXECUTION_MODE = "absolute"
 ABSOLUTE_TIMELINE_ALLOW_EARLY_MS = 0.08       # 绝对时间线允许的轻微提前窗口（ms）（用于补偿python执行延迟）
 ABSOLUTE_TIMELINE_WAIT_CHUNK_MS = 1.0         # 绝对时间线等待切片（ms）
@@ -101,13 +89,6 @@ ENABLE_BATCH_SEND = True           # 总开关
 BATCH_DELAY_THRESHOLD_MS = 3.0     # 延迟 <= 此值的连续动作可合并（0.0 = 仅合并严格0延迟，最安全无时序偏移
 BATCH_MAX_SIZE = 16                # 单批最大动作数（建议 8~32）
 BATCH_INCLUDE_MOUSE_CLICK = True   # 是否将鼠标点击(md/mu)纳入合并
-
-# —— 精度/占用档位 ——
-# 统一入口：latency_first(延迟优先) / balanced(均衡) / cpu_saver(低占用) / custom(自定义)
-# 详见 core/precision_profile.py。切换档位会联动下方一整套开关。
-PRECISION_PROFILE = "balanced"
-PROCESS_PRIORITY_TIER = "normal"     # idle/below/normal/above/high/realtime；可被恢复
-DETECTION_FRAME_CACHE_TTL_MS = 0.0   # 共享帧缓存有效期(ms)；0=跟随档位默认
 
 # —— 高级参数 ——
 ENABLE_REALTIME_PRIORITY = False     # 进程优先级切换到 REALTIME（默认关闭，避免系统输入被饿死）
@@ -137,40 +118,6 @@ EXEC_SPEED_FACTOR = 1.0             # 倍速执行（>1 更快，<1 更慢）
 ENABLE_RUNTIME_RANDOM_OFFSET = False  # 在最终延迟上叠加随机扰动
 RUNTIME_RANDOM_OFFSET_MIN_MS = 0.0
 RUNTIME_RANDOM_OFFSET_MAX_MS = 0.0
-
-# —— Standby 引擎（工业级精度, native dll 级）——
-# 启用后简单线性宏走 native standby 线程, 执行段绕过 Python/GIL, P99 抖动目标 <3us
-ENABLE_STANDBY_ENGINE = False        # 总开关, 默认关闭
-STANDBY_USE_INTERCEPTION = True      # standby 线程是否走 Interception (失败自动回退 SendInput)
-STANDBY_FALLBACK_ON_FAIL = True      # C 扩展加载/初始化/执行失败时回退到现有 Python 路径
-STANDBY_AUTO_PICK_CORE = True        # 自动检测最优 P-core (避开核0/E-core)
-STANDBY_FIXED_CORE = -1              # 手动指定核心索引, -1 表示自动选择
-STANDBY_MAX_EVENTS = 200000          # 时间线最大事件数 (与 MAX_COMPILED_ACTIONS 对齐)
-# —— Standby PrecisionScope (长宏长尾优化, MacroHID 参考实测) ——
-# 启用后在 C 侧 standby_thread 执行段应用 PrecisionScope, 降低 OS 调度抢占导致的长尾。
-# 实测: A 基线在长间隔(300ms+)下有偶发严重长尾(2.3ms), PrecisionScope 全套优化 -99%。
-# 拆分为 4 个分组开关, 用户可按需组合 (任意一个开启即启用 PrecisionScope 框架):
-#   - PRIORITY 组: REALTIME_PRIORITY_CLASS + 进程/线程 priority boost 禁用 (防 OS 抢占)
-#   - TIMER 组: NtSetTimerResolution(0.5ms) + timeBeginPeriod(1) (提升唤醒精度)
-#   - MMCSS 组: AvSetMmThreadCharacteristics("Pro Audio") (绕过普通调度, 需配合 PRIORITY)
-#   - POWER 组: SetProcessInformation(PowerThrottling) 禁用 (防 Win11 节流)
-# 注意: MMCSS 单独使用(无 PRIORITY)在长间隔下可能引入不稳定, 建议与 PRIORITY 同开关。
-# 线程级设置不跨线程传递, C 侧 standby_thread 需独立设置, 与 Python 侧开关不冲突。
-STANDBY_PS_PRIORITY = True           # PRIORITY 组: REALTIME + boost 禁用
-STANDBY_PS_TIMER = True              # TIMER 组: NtSetTimer + timeBeginPeriod
-STANDBY_PS_MMCSS = False             # MMCSS 组: Pro Audio (建议与 PRIORITY 同开关)
-STANDBY_PS_POWER = True              # POWER 组: power throttling 禁用
-
-# —— RTSS 帧同步（混合精度宏）——
-# 单宏中可混用 ms 延迟与帧延迟：ms 延迟照常精确计时，帧延迟等待 RTSS 帧信号后继续
-# 宏格式：["kd","e",50] = 50ms；["kd","e","2f"] = 等待2帧（整数后跟字母f）
-RTSS_ENABLED = True                  # RTSS 帧同步总开关（关闭则帧延迟回退为固定ms）
-RTSS_FRAME_TIMEOUT_S = 0.05         # 单帧等待超时(秒)，超时视为帧已过（防游戏卡顿死锁）
-RTSS_FALLBACK_MS_PER_FRAME = 16     # RTSS 不可用时每帧的回退时长(ms)
-RTSS_TARGET_GAMES = [               # 优先匹配的游戏进程名（大小写无关，部分匹配即可）
-    "yuanshen", "genshin", "zzz", "starrail",
-]
-RTSS_STARTUP_CHECK_MODE = "detect_only"  # off / detect_only / detect_and_wait_2_frames
 
 LAG_COMPENSATION_ENABLED = True      # 累计误差补偿总开关，仅relative_compensated模式生效
 LAG_USE_PI_CONTROLLER = False          # 是否启用PI控制器进行误差补偿
@@ -347,64 +294,8 @@ def _record_interception_keyboard_result(success, reason=""):
             print(f"[系统] 键盘 Interception 连续失败，临时切换 SendInput {remain:.1f}s | 原因: {reason}")
 
 
-# ── 已按下输入跟踪 ──────────────────────────────────────────────────────────
-# 宏被 ESC / 异常中断时会停在 "kd 未 ku" 的位置，导致按键卡死。
-# 原先的收尾只释放 shift/ctrl/alt + 鼠标左右键，普通键和中键不会被释放。
-# native standby 路径在 C 侧（standby_engine.c: release_all_pressed）有完整状态表，
-# Python 路径此前没有。这里补上等价实现。
-_pressed_keys = set()
-_pressed_mouse = set()
-_pressed_lock = threading.Lock()
-
-
-def _track_key(vk_code, up):
-    try:
-        with _pressed_lock:
-            if up:
-                _pressed_keys.discard(vk_code)
-            else:
-                _pressed_keys.add(vk_code)
-    except Exception:
-        pass
-
-
-def _track_mouse(left, up):
-    try:
-        tag = "middle" if left is None else ("left" if left else "right")
-        with _pressed_lock:
-            if up:
-                _pressed_mouse.discard(tag)
-            else:
-                _pressed_mouse.add(tag)
-    except Exception:
-        pass
-
-
-def release_tracked_inputs():
-    """补发所有仍处于按下状态的键/鼠标键的抬起事件。"""
-    with _pressed_lock:
-        keys = list(_pressed_keys)
-        mice = list(_pressed_mouse)
-        _pressed_keys.clear()
-        _pressed_mouse.clear()
-    for vk in keys:
-        try:
-            send_key_event(vk, True)
-        except Exception:
-            pass
-    for tag in mice:
-        try:
-            left = None if tag == "middle" else (tag == "left")
-            send_mouse_click(left, True)
-        except Exception:
-            pass
-    if keys or mice:
-        print(f"[系统] 已补发抬起: 键={len(keys)} 鼠标键={len(mice)}")
-
-
 def send_key_event(vk_code, up=False):
     """发送键盘事件（自动选择最高精度后端）"""
-    _track_key(vk_code, up)
     if USE_INTERCEPTION and USE_INTERCEPTION_KEYBOARD and _can_use_interception_keyboard():
         global _interception_available
         if _interception_available is None:
@@ -426,7 +317,6 @@ def send_key_event(vk_code, up=False):
 
 def send_mouse_click(left=True, up=False):
     """发送鼠标点击事件"""
-    _track_mouse(left, up)
     if USE_INTERCEPTION and USE_INTERCEPTION_MOUSE:
         global _interception_available
         if _interception_available is None:
@@ -1005,16 +895,8 @@ def load_macro_recursive(filepath, visited_files=None):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
             raw_content = f.read()
-        # 容忍用户手工编辑产生的"多余/缺失逗号"与注释：
-        # 标准 json.loads 对结尾多一个逗号、或两条动作之间漏写逗号都会整份报错。
-        if _loads_lenient is not None:
-            macro_data = _loads_lenient(raw_content)
-        else:
-            clean_content = remove_comments(raw_content)
-            macro_data = json.loads(clean_content)
-        if not isinstance(macro_data, list):
-            print(f"[错误] 宏文件顶层必须是数组（{filepath}）")
-            return final_script
+        clean_content = remove_comments(raw_content)
+        macro_data = json.loads(clean_content)
 
         for item in macro_data:
             if isinstance(item, list):
@@ -1064,148 +946,6 @@ def load_macro_from_file(filepath):
     return macro_script
 
 
-def _parse_delay_field(raw):
-    """解析宏延迟字段。
-    - int/float          → ms 延迟，返回正秒数
-    - str "Nf" / "nF"   → N 帧延迟，返回 -N（负值编码帧数，由执行层解释）
-    """
-    if isinstance(raw, str):
-        s = raw.strip()
-        if s.lower().endswith('f'):
-            try:
-                n = int(s[:-1])
-                return float(-max(0, n))
-            except ValueError:
-                pass
-    return max(0.0, float(raw) / 1000.0)
-
-
-# ==============================================================================
-# 附加宏指令（ext）扩展点
-# ------------------------------------------------------------------------------
-# 语法：["ext", "<域>.<动作>", <参数...>]
-#
-# 用途：把"本内核不负责、由插件或外部工具执行"的动作（帧率切换 / 联网状态 / 帧数模拟…）
-#       以内联文本指令的形式写进同一份宏文件，随宏一起读取。
-#
-# 设计约束（务必遵守）：
-#   1. 命名空间隔离：一律以 "ext" 开头，与核心指令（kd/ku/md/mu/view/move_to/scroll/
-#      wait/loop/import）**显式区分**，不污染通用内核语义。
-#   2. 不影响核心时间线：ext 动作的延时恒为 0，且**不参与随机延迟修正与误差补偿**，
-#      因此插入任意条 ext 都不会位移 kd/ku 等核心动作的时间线（宏动作保持高精度）。
-#   3. 不丢数据：handler 未注册时告警并按无副作用跳过；文件层面由 macro_io.parser
-#      保留原始行，编辑器中可原文修复。
-#   4. 实现归属：具体动作由插件通过 register_ext_handler() 注册，内核不含任何外部依赖。
-# ==============================================================================
-EXT_HANDLERS = {}
-# ext 指令的**描述符**表（T2-2）：驱动宏编辑器的可视化参数表单。
-# 描述符与处理器分离：插件可只声明描述符（计划中/尚未安装），界面照样能编辑。
-EXT_COMMAND_SPECS = {}
-_ext_warned = set()
-
-
-def register_ext_command(spec):
-    """注册/覆盖一个 ext 指令**描述符**（供宏编辑器可视化）。
-
-    spec 形如::
-
-        {"name": "fps.lock", "label": "锁定帧率", "description": "…",
-         "args": [{"name": "fps", "label": "帧率", "type": "number",
-                   "default": 30, "min": 1, "max": 240, "step": 1,
-                   "description": "目标帧率"}]}
-    """
-    if not isinstance(spec, dict):
-        raise ValueError("register_ext_command 需要 dict")
-    name = str(spec.get("name", "")).strip()
-    if not name:
-        raise ValueError("ext 指令描述符必须包含 name")
-    clean = dict(spec)
-    clean["name"] = name
-    clean.setdefault("label", name)
-    clean.setdefault("args", [])
-    EXT_COMMAND_SPECS[name] = clean
-    return clean
-
-
-def list_ext_commands():
-    """返回已注册的 ext 指令描述符（附带 has_handler 标记）。"""
-    out = []
-    for name, spec in sorted(EXT_COMMAND_SPECS.items()):
-        item = dict(spec)
-        item["has_handler"] = name in EXT_HANDLERS
-        out.append(item)
-    # 有处理器但没描述符的也列出（至少能确认可用）
-    for name in sorted(EXT_HANDLERS):
-        if name not in EXT_COMMAND_SPECS:
-            out.append({"name": name, "label": name, "description": "（该指令未提供描述符）",
-                        "args": [], "has_handler": True})
-    return out
-
-
-def register_ext_handler(name, handler, spec=None):
-    """注册（或覆盖）一个 ext 指令处理器；可同时声明描述符。
-
-    handler 约定：``handler(args: list) -> Any``，args 为 ["ext", name, ...] 中 name 之后的参数列表。
-    插件可在 backend.py 的模块加载期调用本函数完成注册。
-    """
-    if not name or not callable(handler):
-        raise ValueError("register_ext_handler 需要非空 name 与可调用 handler")
-    EXT_HANDLERS[str(name)] = handler
-    if spec is not None:
-        s = dict(spec)
-        s.setdefault("name", str(name))
-        register_ext_command(s)
-    return handler
-
-
-def unregister_ext_handler(name):
-    """注销一个 ext 指令处理器，返回被移除的 handler（无则 None）。"""
-    return EXT_HANDLERS.pop(str(name), None)
-
-
-def list_ext_handlers():
-    """返回当前已注册的 ext 指令名列表。"""
-    return sorted(EXT_HANDLERS.keys())
-
-
-# —— 内置 ext 指令（本工程自带，非外部插件）——
-# ext.echo 仅用于**验证 ext 通道**（打印参数、无副作用），方便端到端自测。
-def _ext_builtin_echo(args):
-    print(f"[ext.echo] {args}")
-
-
-register_ext_handler("ext.echo", _ext_builtin_echo, spec={
-    "name": "ext.echo",
-    "label": "测试回显（内置）",
-    "description": "把参数打印到控制台，用于验证 ext 指令通道；不产生任何副作用。",
-    "builtin": True,
-    "args": [
-        {"name": "text", "label": "文本", "type": "string", "default": "hello"},
-        {"name": "count", "label": "次数", "type": "number", "default": 1, "min": 1, "max": 10, "step": 1},
-    ],
-})
-
-# —— 计划中的外部指令：**只声明描述符、不含处理器** ——
-# 目的是让宏编辑器提前具备可视化编辑能力；等专用软件（插件）落地后
-# 由插件调用 register_ext_handler(name, handler) 补上处理器即可，界面无需改动。
-for _spec in (
-    {"name": "fps.lock", "label": "锁定帧率（需插件）", "planned": True,
-     "description": "把游戏帧率锁定到指定值（依赖 RTSS / 外部插件）。",
-     "args": [{"name": "fps", "label": "目标帧率", "type": "number", "default": 30, "min": 1, "max": 240, "step": 1},
-              {"name": "mode", "label": "方式", "type": "enum", "default": "set",
-               "options": ["set", "restore"], "description": "set=锁帧, restore=恢复"}]},
-    {"name": "net.set", "label": "设置联网状态（需插件）", "planned": True,
-     "description": "切换正常/断网/弱网/强网（依赖外部网络整形器）。",
-     "args": [{"name": "state", "label": "状态", "type": "enum", "default": "normal",
-               "options": ["normal", "offline", "weak", "strong"]}]},
-    {"name": "frame.sim", "label": "帧数模拟（需插件）", "planned": True,
-     "description": "按目标帧率进行帧步进模拟（实现方式待定）。",
-     "args": [{"name": "fps", "label": "目标帧率", "type": "number", "default": 60, "min": 1, "max": 240, "step": 1},
-              {"name": "mode", "label": "模式", "type": "enum", "default": "pace", "options": ["pace", "limit"]}]},
-):
-    register_ext_command(_spec)
-
-
 def compile_macro(script):
     """编译宏脚本为可执行指令（修复闭包陷阱）"""
     if not script:
@@ -1248,31 +988,6 @@ def compile_macro(script):
 
     def _parse(item):
         cmd = item[0]
-
-        # —— 附加宏指令（ext）：命名空间隔离，零延时，不参与随机/补偿 ——
-        if cmd == "ext":
-            name = str(item[1]) if len(item) > 1 else ""
-            ext_args = list(item[2:]) if len(item) > 2 else []
-            _reserve_actions(1)
-            desc = f"ext:{name}"
-            handler = EXT_HANDLERS.get(name)
-            if handler is None:
-                if name not in _ext_warned:
-                    _ext_warned.add(name)
-                    print(f"[ext] 未注册的附加指令 '{name}'：已跳过（不影响时间线）。"
-                          f"请由插件 register_ext_handler('{name}', ...) 后重试。")
-                return [(None, 0.0, "ext", desc,
-                         {"type": "ext", "name": name, "args": ext_args, "handled": False})]
-
-            def _run_ext(_h=handler, _a=ext_args, _n=name):
-                try:
-                    _h(_a)
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[ext] 指令 '{_n}' 执行出错：{exc}")
-
-            return [(_run_ext, 0.0, "ext", desc,
-                     {"type": "ext", "name": name, "args": ext_args, "handled": True})]
-
         if cmd == "loop":
             block = []
             loop_body = item[2]
@@ -1284,10 +999,9 @@ def compile_macro(script):
 
         delay_s, func = 0.0, None
         if cmd == "wait":
-            delay_s = _parse_delay_field(item[1])
+            delay_s = max(0.0, float(item[1]) / 1000.0)
             _reserve_actions(1)
-            _d_repr = str(item[1]) if isinstance(item[1], str) else f"{float(item[1]):.1f}"
-            return [(None, delay_s, "wait", f"wait({_d_repr})", None)]
+            return [(None, delay_s, "wait", f"wait({float(item[1]):.1f})", None)]
 
         if cmd == "view":
             dx = float(item[1][0])
@@ -1314,13 +1028,13 @@ def compile_macro(script):
                 view_steps.append((
                     func, s_del, "view",
                     f"view(step={i + 1}/{steps},dx={sx},dy={sy},step={s_del * 1000:.3f})",
-                    {"type": "mouse_move_rel", "dx": sx, "dy": sy}
+                    None
                 ))
             return view_steps
         
         key_name = item[1]
         vk = get_vk(key_name)
-        delay_s = _parse_delay_field(item[2])
+        delay_s = max(0.0, float(item[2]) / 1000.0)
         action_desc = f"{cmd}({key_name})"
         func = None
         raw_info = None
@@ -1358,34 +1072,23 @@ def compile_macro(script):
             step_delay_list = _split_float_duration_preserve_sum(dur_ms / 1000.0, steps)
             _reserve_actions(steps)
             result = []
-            # 插值起点必须是**当前光标位置**，而不是屏幕原点 (0,0)。
-            # 原实现第一步会把光标瞬移到 (target_x/steps, target_y/steps) —— 即左上角附近，
-            # 再滑向目标。在原神这类走 RawInput 的游戏里会造成视角剧烈甩动/误触 UI。
-            start_x, start_y = get_cursor_pos()
             for i in range(steps):
                 t = (i + 1) / steps
-                cur_x = int(round(start_x + (target_x - start_x) * t))
-                cur_y = int(round(start_y + (target_y - start_y) * t))
+                cur_x = int(round(target_x * t))
+                cur_y = int(round(target_y * t))
                 s_del = step_delay_list[i]
                 func = lambda cx=cur_x, cy=cur_y: set_cursor_pos(cx, cy)
                 result.append((func, s_del, "move_to",
-                               f"move_to({cur_x},{cur_y})",
-                               {"type": "set_cursor_pos", "x": cur_x, "y": cur_y}))
+                               f"move_to({cur_x},{cur_y})", None))
             return result
         elif cmd == "scroll":
             delta = int(item[1])
             _reserve_actions(1)
             func = lambda d=delta: send_scroll_sendinput(d)
-            return [(func, 0.0, "scroll", f"scroll({delta})",
-                     {"type": "scroll", "delta": delta})]
+            return [(func, 0.0, "scroll", f"scroll({delta})", None)]
         if func:
             _reserve_actions(1)
             return [(func, delay_s, cmd, action_desc, raw_info)]
-        # 未识别的指令：告警一次（原文由 macro_io.parser 保留，不会丢数据）
-        key = str(cmd)
-        if key not in _ext_warned:
-            _ext_warned.add(key)
-            print(f"[宏] 跳过未识别的指令 '{key}'（原文已保留，可在宏编辑器中修复）")
         return []
 
     for step in script:
@@ -1425,16 +1128,6 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
     local_low_cpu = _opt.get("low_cpu", ENABLE_LOW_CPU_EXECUTION)
     local_batch_send = _opt.get("batch_send", ENABLE_BATCH_SEND)
     local_max_exec_time = _opt.get("max_exec_time", MAX_MACRO_EXEC_TIME)
-
-    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
-    # 设置 thread-local 覆盖，仅影响当前线程；执行完在 finally 中清除。
-    _rtss_override = _opt.get("rtss_override", "inherit")
-    if _rtss_override not in ("on", "off", "inherit"):
-        _rtss_override = "inherit"
-    try:
-        _get_rtss().set_thread_override(_rtss_override)
-    except Exception:
-        pass
 
     # 预计算批次统计
     batch_count = sum(1 for item in compiled_macro if item[2] == "batch")
@@ -1523,7 +1216,7 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
         def compute_compensation(self, current_time, ideal_time, next_delay, action_type=""):
             raw_lag = current_time - ideal_time
             smoothed_lag = self._kalman_update(raw_lag)
-            if action_type in ("wait", "ext"):
+            if action_type == "wait":
                 return 0.0
             if abs(smoothed_lag) <= self.error_trigger:
                 self._integral *= self.integral_decay
@@ -1575,7 +1268,7 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
             self._window.append(driver_cost)
             if len(self._window) >= self._warmup_steps:
                 self._avg_driver_cost = sum(self._window) / len(self._window)
-            if action_type in ("wait", "ext"):
+            if action_type == "wait":
                 return 0.0
             ff_comp = self._avg_driver_cost * self._scale if len(self._window) >= self._warmup_steps else 0.0
             raw_error = current_time - ideal_time
@@ -1732,9 +1425,6 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
                     adjusted_delay = sum(calc_adjusted_delay_seconds(d) for d in individual_delays)
             elif action_type == "wait":
                 adjusted_delay = base_delay
-            elif action_type == "ext":
-                # ext 不参与任何延时/随机修正/补偿：插入 ext 不位移核心动作时间线
-                adjusted_delay = 0.0
             elif use_absolute_timeline and not _opt.get("absolute_delay_adjust", ABSOLUTE_TIMELINE_USE_DELAY_ADJUST):
                 adjusted_delay = base_delay
             else:
@@ -1797,27 +1487,6 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
                 stats_wait_for_error = actual_wait
                 if paused_in_sleep_s > 0.0:
                     stats_wait_for_error = max(0.0, adjusted_delay - action_exec_cost)
-
-            # ── RTSS 帧延迟等待（delay<0 表示帧数，由 _parse_delay_field 编码）──
-            # 在 ms 延迟（为0）之后等待帧信号，帧等待完成后重置时间线起点
-            if delay < -0.5 and not stop_event.is_set():
-                _fc = int(-delay + 0.5)
-                _rtss = _get_rtss()
-                _t0_frame = time.perf_counter()
-                _rtss.wait_frames(_fc, stop_event)
-                _frame_dt = time.perf_counter() - _t0_frame
-                # 帧等待后重置时间线/ideal_time，后续 ms 延迟从帧边界开始计算
-                _now_f = time.perf_counter()
-                if use_absolute_timeline:
-                    timeline_target_time = _now_f
-                else:
-                    ideal_time = _now_f
-                    for _ctrl in lag_controllers:
-                        if hasattr(_ctrl, 'reset_state'):
-                            _ctrl.reset_state()
-                actual_wait = _frame_dt
-                stats_wait_for_error = _frame_dt
-                adjusted_delay = _frame_dt  # 用于后续误差统计
 
             if stop_event.is_set():
                 print(f"[宏执行] {macro_name} 被手动终止（执行到第{idx + 1}步）")
@@ -1925,12 +1594,6 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
         if gc_was_enabled:
             gc.enable()
 
-        # 清除当前线程的 RTSS 覆盖，避免泄漏到同线程后续执行
-        try:
-            _get_rtss().clear_thread_override()
-        except Exception:
-            pass
-
         if local_test_trace and reports:
             action_reports = [r for r in reports if isinstance(r.get("step"), int)]
             total_steps = sum(r.get("action_count", 1) for r in action_reports)
@@ -1970,904 +1633,6 @@ def execute_macro_once(compiled_macro, stop_event, pause_event=None, macro_name=
             send_key_event(get_vk("alt"), True)
             send_mouse_click(True, True)
             send_mouse_click(False, True)
-            # 上面只覆盖了 shift/ctrl/alt 和鼠标左右键。宏自己按下的普通键
-            # （w/a/s/d/e/q/1~4 等）和中键在 ESC 中止后会卡住 —— 停在 kd 未 ku 的位置。
-            # native standby 路径的 C 侧 release_all_pressed() 有完整状态表，
-            # Python 路径此前没有。这里补上（见 _pressed_keys / _pressed_mouse 跟踪）。
-            release_tracked_inputs()
-
-
-# ==================== RTSS 帧同步 ====================
-
-class _RtssSync:
-    """通过 RTSS RTSSSharedMemoryV2 共享内存等待游戏帧更新信号。
-
-    宏中用 "Nf" 格式表示帧延迟（如 ["kd","e","2f"]），引擎解析后调用
-    wait_frames(N, stop_event) 等待 N 个帧信号再继续执行。
-
-    RTSS 不可用时自动回退为 RTSS_FALLBACK_MS_PER_FRAME ms/帧 的固定延迟。
-    """
-    _SIGNATURE = 0x52545353      # 'RTSS'
-    _MIN_VER   = 0x00020000
-    _FILE_MAP_READ = 0x0004
-
-    def __init__(self):
-        import ctypes.wintypes as _wt
-        k32 = ctypes.windll.kernel32
-        self._open_map = k32.OpenFileMappingW
-        self._open_map.restype  = _wt.HANDLE
-        self._open_map.argtypes = [_wt.DWORD, _wt.BOOL, _wt.LPCWSTR]
-        self._map_view = k32.MapViewOfFile
-        self._map_view.restype  = ctypes.c_void_p
-        self._map_view.argtypes = [_wt.HANDLE, _wt.DWORD, _wt.DWORD, _wt.DWORD, ctypes.c_size_t]
-        self._unmap  = k32.UnmapViewOfFile
-        self._hclose = k32.CloseHandle
-        self._hmap   = None
-        self._view   = None
-        self._last_tick       = None
-        self._warned_fallback = False
-        # 每线程覆盖：'on' / 'off' / 'inherit' (默认 None ≡ inherit)
-        # 用于"调用宏"节点按节点级 rtss_override 决策，不污染全局开关。
-        self._local = threading.local()
-
-    def set_thread_override(self, override):
-        """设置当前线程的 RTSS 覆盖策略。
-        override: 'on' / 'off' / 'inherit' / None
-          - 'on'      : 强制尝试 RTSS 路径（无视全局 RTSS_ENABLED=False）；
-                        若 RTSS 共享内存仍不可用则回退 fallback。
-          - 'off'     : 强制走 fallback 固定 ms 延迟。
-          - 'inherit' : 使用全局 RTSS_ENABLED 开关（默认行为）。
-        """
-        if override in ('on', 'off', 'inherit', None):
-            self._local.rtss_override = override
-        else:
-            self._local.rtss_override = 'inherit'
-
-    def clear_thread_override(self):
-        """清除当前线程的覆盖，回到 inherit 语义。"""
-        self._local.rtss_override = 'inherit'
-
-    def _get_thread_override(self):
-        return getattr(self._local, 'rtss_override', 'inherit')
-
-    def _ensure_open(self):
-        if self._view:
-            return True
-        self._hmap = self._open_map(self._FILE_MAP_READ, False, "RTSSSharedMemoryV2")
-        if not self._hmap:
-            return False
-        self._view = self._map_view(self._hmap, self._FILE_MAP_READ, 0, 0, 0)
-        if not self._view:
-            self._hclose(self._hmap); self._hmap = None
-            return False
-        return True
-
-    def _u32(self, off):
-        v = ctypes.c_uint32()
-        ctypes.memmove(ctypes.byref(v), self._view + off, 4)
-        return v.value
-
-    def _bytes_at(self, off, n):
-        b = (ctypes.c_uint8 * n)()
-        ctypes.memmove(b, self._view + off, n)
-        return bytes(b)
-
-    def _current_tick(self):
-        """读取当前最优帧 tick。返回 (t1,frames,frametime) 或 None。"""
-        try:
-            if self._u32(0) != self._SIGNATURE or self._u32(4) < self._MIN_VER:
-                return None
-            entry_sz = self._u32(8)
-            arr_off  = self._u32(0x0C)
-            arr_cnt  = self._u32(0x10)
-            best, best_ft = None, 0xFFFFFFFF
-            for i in range(arr_cnt):
-                base = arr_off + i * entry_sz
-                if self._u32(base) == 0:
-                    continue
-                name = self._bytes_at(base + 4, 260).split(b'\x00')[0].decode('ascii', 'ignore').lower()
-                t1 = self._u32(base + 0x110)
-                fr = self._u32(base + 0x114)
-                ft = self._u32(base + 0x118)
-                if ft == 0:
-                    continue
-                for g in RTSS_TARGET_GAMES:
-                    if g in name:
-                        return (t1, fr, ft)  # 优先返回目标游戏
-                if ft < best_ft:
-                    best_ft, best = ft, (t1, fr, ft)
-            return best
-        except Exception:
-            return None
-
-    def reset(self):
-        """宏开始前重置帧基准（避免复用上次的 tick 导致漏帧）。"""
-        self._last_tick = None
-
-    def detect_entry_offset(self):
-        """侦测目标游戏 entry, 返回该 entry 在共享内存内的起始偏移 (entry base)。
-        供 C 层 set_rtss_config 使用: C 层从该偏移读取 (t1, fr, ft) 三字段指纹,
-        与 _RtssSync._wait_one_frame 完全对齐 (单比较 t1 会漏帧)。
-        匹配优先级: RTSS_TARGET_GAMES > ft 最小且非 0 的 entry。
-        返回 0 表示未找到 (C 层走 fallback ms 自旋)。"""
-        if not self._ensure_open():
-            return 0
-        try:
-            if self._u32(0) != self._SIGNATURE or self._u32(4) < self._MIN_VER:
-                return 0
-            entry_sz = self._u32(8)
-            arr_off  = self._u32(0x0C)
-            arr_cnt  = self._u32(0x10)
-            best_off, best_ft = 0, 0xFFFFFFFF
-            for i in range(arr_cnt):
-                base = arr_off + i * entry_sz
-                if self._u32(base) == 0:
-                    continue
-                name = self._bytes_at(base + 4, 260).split(b'\x00')[0].decode('ascii', 'ignore').lower()
-                ft = self._u32(base + 0x118)
-                if ft == 0:
-                    continue
-                for g in RTSS_TARGET_GAMES:
-                    if g in name:
-                        return base   # 返回 entry base, C 层自加 0x110/0x114/0x118
-                if ft < best_ft:
-                    best_ft, best_off = ft, base
-            return best_off
-        except Exception:
-            return 0
-
-    def _wait_one_frame(self, stop_event, timeout_s):
-        """等待一帧更新信号。返回 True=检测到新帧，False=超时或stop。"""
-        if not self._ensure_open():
-            return False
-        deadline = time.perf_counter() + timeout_s
-        spin = 0
-        if self._last_tick is None:
-            self._last_tick = self._current_tick()
-        while time.perf_counter() < deadline:
-            if stop_event.is_set():
-                return False
-            curr = self._current_tick()
-            if curr is not None and curr != self._last_tick:
-                self._last_tick = curr
-                return True
-            if spin < 128:
-                spin += 1
-            else:
-                spin = 0
-                time.sleep(0)  # yield，让出 CPU 片段
-        return False  # 超时
-
-    def wait_frames(self, n, stop_event, timeout_s=None):
-        """等待 n 帧，stop_event 被置位时提前返回。返回实际等到的帧数。"""
-        if n <= 0:
-            return 0
-        to = timeout_s if timeout_s is not None else RTSS_FRAME_TIMEOUT_S
-        # 解析 thread-local 覆盖：on=强制尝试 RTSS; off=强制 fallback; inherit=读全局开关
-        override = self._get_thread_override()
-        if override == 'off':
-            use_rtss = False
-        elif override == 'on':
-            use_rtss = self._ensure_open()
-        else:  # inherit / None
-            use_rtss = RTSS_ENABLED and self._ensure_open()
-        if not use_rtss:
-            if not self._warned_fallback:
-                self._warned_fallback = True
-                print(f"[RTSS] 未检测到 RTSS，帧延迟回退为 {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
-            waited = 0
-            for _ in range(n):
-                if stop_event.is_set():
-                    break
-                time.sleep(RTSS_FALLBACK_MS_PER_FRAME / 1000.0)
-                waited += 1
-            return waited
-        self._warned_fallback = False
-        waited = 0
-        for _ in range(n):
-            if stop_event.is_set():
-                break
-            self._wait_one_frame(stop_event, to)
-            waited += 1  # 超时也计为一帧通过（游戏可能暂停，不能永久卡住）
-        return waited
-
-
-_rtss_sync_instance: "_RtssSync | None" = None
-
-
-def _get_rtss() -> "_RtssSync":
-    global _rtss_sync_instance
-    if _rtss_sync_instance is None:
-        _rtss_sync_instance = _RtssSync()
-    return _rtss_sync_instance
-
-
-def rtss_startup_check(mode: str = None) -> None:
-    """启动全局宏监听时调用：检测 RTSS 连接状态并报告结果到控制台。
-
-    mode: "off" / "detect_only" / "detect_and_wait_2_frames"
-    被自动化编辑器调用时不必调用本函数。
-    """
-    if mode is None:
-        mode = RTSS_STARTUP_CHECK_MODE
-    if mode == "off" or not RTSS_ENABLED:
-        return
-    try:
-        import threading
-        rtss = _get_rtss()
-        if not rtss._ensure_open():
-            print(f"[RTSS] 未检测到 RTSS，帧延迟将回退 {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
-            return
-        tick = rtss._current_tick()
-        if tick is None:
-            print("[RTSS] 已连接但未检测到目标游戏进程，帧延迟将回退为固定 ms/帧")
-            return
-        ft = tick[2]
-        fps = 1e6 / ft if ft > 0 else 0.0
-        print(f"[RTSS] 已连接: 帧间隔 {ft}µs ≈ {fps:.1f}fps")
-        if mode == "detect_and_wait_2_frames":
-            ev = threading.Event()
-            t0 = time.perf_counter()
-            rtss.wait_frames(2, ev)
-            dt_ms = (time.perf_counter() - t0) * 1000
-            print(f"[RTSS] 测试等待2帧实耗 {dt_ms:.1f}ms，工作正常")
-    except Exception as exc:
-        print(f"[RTSS] 启动检测异常: {exc}")
-
-
-# ==================== Standby 引擎集成 ====================
-# native dll 级工业精度: 执行段绕过 Python/GIL, 单核硬绑 + 自旋待命
-_standby_engine_module = None  # None=未检测, False=不可用, module=可用
-
-# Extended key VK 集合 (Interception KEY_E0 标志)
-_STANDBY_EXTENDED_VK = {
-    0xA1, 0xA3, 0xA5,                                  # RSHIFT RCTRL RALT
-    0x25, 0x26, 0x27, 0x28,                            # LEFT UP RIGHT DOWN
-    0x2D, 0x2E, 0x21, 0x22, 0x23, 0x24,                # INSERT DELETE PGUP PGDN END HOME
-    0x5B, 0x5C,                                        # LWIN RWIN
-    0x6F,                                              # NUMPAD DIVIDE
-}
-
-
-def _standby_available():
-    """检测 _standby_engine C 扩展是否可用。幂等。"""
-    global _standby_engine_module
-    if _standby_engine_module is False:
-        return False
-    if _standby_engine_module is not None:
-        return True
-    try:
-        import _standby_engine as se
-        se.init()
-        _standby_engine_module = se
-        # 同步 Interception 冗余配置到 C 层
-        try:
-            from engine.input_interception import (
-                INTERCEPTION_KEYBOARD_REDUNDANT_DEVICES,
-                INTERCEPTION_MOUSE_LEFT_DOWN_LIMITED,
-                INTERCEPTION_MOUSE_LEFT_REDUNDANT_DOWN_DEVICES,
-                INTERCEPTION_MOUSE_LEFT_UP_LIMITED_RELEASE,
-                INTERCEPTION_MOUSE_LEFT_REDUNDANT_UP_DEVICES,
-            )
-            se.configure_interception(
-                int(INTERCEPTION_KEYBOARD_REDUNDANT_DEVICES),
-                1 if INTERCEPTION_MOUSE_LEFT_DOWN_LIMITED else 0,
-                int(INTERCEPTION_MOUSE_LEFT_REDUNDANT_DOWN_DEVICES),
-                1 if INTERCEPTION_MOUSE_LEFT_UP_LIMITED_RELEASE else 0,
-                int(INTERCEPTION_MOUSE_LEFT_REDUNDANT_UP_DEVICES),
-            )
-        except Exception:
-            pass
-        ic_ok = bool(se.is_interception_available())
-        print(f"[standby] C 扩展已加载, QPC={se.get_qpc_frequency()}Hz, "
-              f"interception={'on' if ic_ok else 'off'}")
-        return True
-    except Exception as e:
-        print(f"[standby] C 扩展不可用, 回退到 Python 路径: {e}")
-        _standby_engine_module = False
-        return False
-
-
-def _vk_to_scan(vk):
-    """vk → scan code (MAPVK_VK_TO_VSC)。"""
-    return ctypes.windll.user32.MapVirtualKeyA(vk, 0)
-
-
-def _standby_percentile(values, q):
-    """简单 percentile 计算。"""
-    if not values:
-        return float("nan")
-    arr = sorted(values)
-    pos = (len(arr) - 1) * q
-    lo = int(pos)
-    hi = min(lo + 1, len(arr) - 1)
-    frac = pos - lo
-    return arr[lo] + (arr[hi] - arr[lo]) * frac
-
-
-def _append_standby_event(events, meta, offset_ns, item, use_ic_key, use_ic_mouse, se):
-    """根据 compiled_macro item 的 raw_info 发射 standby 时间线事件。
-    同时往 meta 列表追加 (desc, offset_ns, atype) 用于步进追踪。
-    """
-    func, delay_s, atype, desc, raw_info = item
-    if raw_info is None:
-        return
-    rtype = raw_info.get("type")
-
-    if rtype == "key":
-        vk = raw_info["vk"]
-        up = raw_info["up"]
-        if use_ic_key:
-            scan = _vk_to_scan(vk)
-            ext = 1 if vk in _STANDBY_EXTENDED_VK else 0
-            events.append((offset_ns, se.ACT_INTERCEPTION_KEY, int(scan), 0 if not up else 1, ext))
-        else:
-            events.append((offset_ns, se.ACT_KEY_DOWN if not up else se.ACT_KEY_UP, int(vk), 0, 0))
-        meta.append((desc, offset_ns, atype))
-
-    elif rtype == "mouse_click":
-        left = raw_info.get("left")
-        middle = raw_info.get("middle", False)
-        up = raw_info["up"]
-        if middle:
-            btn = 3
-            events.append((offset_ns, se.ACT_MOUSE_DOWN if not up else se.ACT_MOUSE_UP, btn, 0, 0))
-        elif left is not None:
-            if use_ic_mouse:
-                events.append((offset_ns, se.ACT_INTERCEPTION_MOUSE, 1 if left else 0, 0 if not up else 1, 0))
-            else:
-                btn = 1 if left else 2
-                events.append((offset_ns, se.ACT_MOUSE_DOWN if not up else se.ACT_MOUSE_UP, btn, 0, 0))
-        meta.append((desc, offset_ns, atype))
-
-    elif rtype == "mouse_move_rel":
-        dx = int(raw_info["dx"])
-        dy = int(raw_info["dy"])
-        if dx != 0 or dy != 0:
-            events.append((offset_ns, se.ACT_MOUSE_MOVE_REL, dx, dy, 0))
-            meta.append((desc, offset_ns, atype))
-
-    elif rtype == "set_cursor_pos":
-        x = int(raw_info["x"])
-        y = int(raw_info["y"])
-        events.append((offset_ns, se.ACT_SET_CURSOR_POS, x, y, 0))
-        meta.append((desc, offset_ns, atype))
-
-    elif rtype == "scroll":
-        delta = int(raw_info["delta"])
-        events.append((offset_ns, se.ACT_MOUSE_SCROLL, delta, 0, 0))
-        meta.append((desc, offset_ns, atype))
-
-
-def compile_to_timeline(compiled_macro, mode="normal", speed_factor=1.0):
-    """把 compiled_macro 转成 standby 时间线格式。
-
-    compiled_macro 每项: (func, delay_s, type, desc, raw_info)
-    返回: (events, events_meta)
-      events: list[tuple(offset_ns, action_type, param1, param2, param3)]
-      events_meta: list[(desc, offset_ns, atype)] 与 events 一一对应, 用于步进追踪
-
-    时序语义: delay_s 是"执行本动作之后"到下一动作的间隔，与 execute_macro_once
-    绝对时间线一致——动作先在当前 offset 触发，之后 offset 才向前推进 delay_s。
-
-    speed_factor: 倍速因子（>1 更快，<1 更慢）。仅缩放 ms 延迟的 offset_ns，
-                  帧延迟事件 (ACT_RTSS_WAIT_FRAMES) 不受影响，始终保持等 N 帧。
-
-    mode:
-      "normal"   — 单段宏。帧延迟 (delay_s<0) 视为 0, 由 Python 层段间处理
-                   (兼容旧 _execute_via_standby_segmented 路径)。
-      "segmented" — B 方案完全下沉路径。帧延迟转成 ACT_RTSS_WAIT_FRAMES 事件,
-                    并重置 offset_ns=0 开始新段。C 层 standby_thread 遇到该事件时
-                    自旋等 N 帧, 完成后重置 base_qpc 为帧对齐瞬间。
-                    段内事件 target = base_qpc + offset_ns (段内偏移)。
-    """
-    se = _standby_engine_module
-    if se is None or se is False:
-        raise RuntimeError("standby engine not initialized")
-
-    # 倍速: ms 延迟按 1/speed_factor 缩放；帧延迟不缩放（保持帧同步语义）
-    sf = max(0.05, float(speed_factor))
-    inv_sf = 1.0 / sf
-
-    events = []
-    meta = []
-    offset_ns = 0
-    segmented = (mode == "segmented")
-    ACT_RTSS_WAIT_FRAMES = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
-    use_ic_key = STANDBY_USE_INTERCEPTION and USE_INTERCEPTION and USE_INTERCEPTION_KEYBOARD
-    use_ic_mouse = STANDBY_USE_INTERCEPTION and USE_INTERCEPTION and USE_INTERCEPTION_MOUSE
-
-    def _emit_frame_barrier(frames, label):
-        """emit RTSS 帧等待事件, 重置段内 offset。仅 segmented 模式调用。"""
-        nonlocal offset_ns
-        events.append((0, ACT_RTSS_WAIT_FRAMES, frames, 0, 0))
-        meta.append((f"{label}+{frames}f", 0, ACT_RTSS_WAIT_FRAMES))
-        offset_ns = 0
-
-    def _advance_ms_offset(delay_s):
-        """按 speed_factor 缩放 ms 延迟并推进段内 offset_ns。"""
-        nonlocal offset_ns
-        offset_ns += int(max(0.0, delay_s) * 1_000_000_000 * inv_sf)
-
-    for item in compiled_macro:
-        func, delay_s, atype, desc, raw_info = item
-        is_frame_barrier = segmented and delay_s < -0.5
-
-        if atype == "wait":
-            if is_frame_barrier:
-                _emit_frame_barrier(int(-delay_s + 0.5), "wait")
-            else:
-                _advance_ms_offset(delay_s)
-            continue
-
-        if atype == "batch":
-            if not isinstance(raw_info, dict):
-                if is_frame_barrier:
-                    _emit_frame_barrier(int(-delay_s + 0.5), "batch")
-                else:
-                    _advance_ms_offset(delay_s)
-                continue
-            for sub_item in raw_info.get("actions", []):
-                _append_standby_event(events, meta, offset_ns, sub_item, use_ic_key, use_ic_mouse, se)
-            if is_frame_barrier:
-                _emit_frame_barrier(int(-delay_s + 0.5), "batch")
-            else:
-                _advance_ms_offset(delay_s)
-            continue
-
-        # 普通动作：先在当前 offset 触发，再推进 delay_s
-        _append_standby_event(events, meta, offset_ns, item, use_ic_key, use_ic_mouse, se)
-        if is_frame_barrier:
-            _emit_frame_barrier(int(-delay_s + 0.5), desc)
-        else:
-            _advance_ms_offset(delay_s)
-
-    return events, meta
-
-
-def _standby_release_fallback():
-    """standby 执行后兜底释放按键/鼠标 (幂等)。
-
-    C 扩展在线程退出前已调用 release_all_pressed 补发抬起, 这里是双保险:
-    - 覆盖 C 层未触发的边界 (如 C 扩展加载失败但已有按键按下)
-    - 抬起是幂等操作, 对已抬起的键再发抬起无害
-    - 与 execute_macro_once 末尾的释放逻辑对齐, 保证两条路径行为一致
-    """
-    try:
-        send_mouse_click(True, True)    # 左键抬起
-        send_mouse_click(False, True)   # 右键抬起
-        send_key_event(get_vk("shift"), True)
-        send_key_event(get_vk("ctrl"), True)
-        send_key_event(get_vk("alt"), True)
-    except Exception as _e:
-        print(f"[standby] 兜底释放异常(忽略): {_e}")
-
-
-def _execute_via_standby(compiled_macro, stop_event, macro_name, options=None):
-    """通过 standby 引擎执行宏。返回 True 表示成功, False 表示需回退。"""
-    import statistics as _stats
-
-    se = _standby_engine_module
-    if se is None or se is False:
-        return False
-
-    # ── 帧延迟分段执行（delay_s<0 = 帧边界）──
-    # 有帧延迟时，宏按帧边界切段，段内走 native standby 时间线，段间做 RTSS 帧等待
-    _skip_fallback = (options or {}).get("_no_release_fallback", False)
-    if not _skip_fallback and any(item[1] < -0.5 for item in compiled_macro):
-        return _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, options)
-
-    _opt = options if options else {}
-    local_test_trace = _opt.get("test_trace", ENABLE_TEST_TRACE)
-    trace_mode = str(_opt.get("test_trace_mode", TEST_TRACE_OUTPUT_MODE)).lower()
-    if trace_mode not in ("realtime", "final"):
-        trace_mode = "final"
-    # 倍速: 新引擎从 options 传，旧引擎走全局 EXEC_SPEED_FACTOR
-    local_speed = _opt.get("speed_factor", EXEC_SPEED_FACTOR)
-
-    try:
-        # 1. 编译时间线 (ms 延迟按 speed_factor 缩放, 帧延迟不缩放)
-        events, events_meta = compile_to_timeline(compiled_macro, speed_factor=local_speed)
-        if not events:
-            print(f"[standby] {macro_name} 无可执行事件, 跳过")
-            return True
-        if len(events) > STANDBY_MAX_EVENTS:
-            raise ValueError(f"时间线事件数 {len(events)} 超过上限 {STANDBY_MAX_EVENTS}")
-
-        # 1b. 按 ENABLE_TEST_TRACE 同步开关 C 层统计
-        if hasattr(se, "set_stats_enabled"):
-            se.set_stats_enabled(1 if local_test_trace else 0)
-
-        # 2. 选核
-        if STANDBY_FIXED_CORE >= 0:
-            core = STANDBY_FIXED_CORE
-        elif STANDBY_AUTO_PICK_CORE:
-            core = se.auto_pick_core()
-            if core is None:
-                raise RuntimeError("无法检测可用 P-core")
-        else:
-            core = 1  # 默认核 1
-
-        # 3. 提交时间线
-        n = se.submit_timeline(events, 0)
-        if n < 0:
-            raise RuntimeError("submit_timeline 失败")
-
-        # 4. 启动 standby 线程
-        # 分段模式下 (_keep_pressed=True) 传入 keep_pressed=1, 让 C 层退出时不补发抬起,
-        # 保留段间按键状态延续 (如 "kd e → 等2帧 → ku e" 长按);
-        # 最后一段 _keep_pressed=False, 由 C 层 release_all_pressed 统一补发抬起
-        use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
-        keep_pressed = 1 if _opt.get("_keep_pressed", False) else 0
-        # config: 0=CONFIG_A(基线), 1=CONFIG_B(PrecisionScope)
-        # mask: 4 组分组开关合成 (任一开启即用 CONFIG_B)
-        ps_mask = 0
-        if STANDBY_PS_PRIORITY: ps_mask |= se.PS_REALTIME | se.PS_PROC_BOOST_OFF | se.PS_THREAD_BOOST_OFF
-        if STANDBY_PS_TIMER:    ps_mask |= se.PS_NT_TIMER | se.PS_TIME_PERIOD
-        if STANDBY_PS_MMCSS:    ps_mask |= se.PS_MMCSS
-        if STANDBY_PS_POWER:    ps_mask |= se.PS_POWER_THROTTLE
-        standby_config = 1 if ps_mask else 0
-        if standby_config and hasattr(se, "set_precision_mask"):
-            se.set_precision_mask(ps_mask)
-        se.start(core, use_ic, keep_pressed, standby_config)
-        print(f"[standby] 启动: CPU{core}, events={len(events)}, interception={use_ic}, keep_pressed={keep_pressed}, precision_scope={'on(mask=0x%02x)' % ps_mask if standby_config else 'off'}, macro={macro_name}")
-
-        # 5. 等待完成或停止 (轮询 stop_event, 每 2ms 检查)
-        while not stop_event.is_set():
-            if se.wait_completion(2):  # 2ms 超时, 完成返回 1
-                break
-        else:
-            # ESC 触发, 停止 standby
-            se.stop()
-            print(f"[standby] 用户终止: {macro_name}")
-            return True
-
-        # 6. 读取结果, 计算抖动
-        results = se.get_results()
-        qpc_freq = se.get_qpc_frequency()
-        if results and qpc_freq > 0:
-            arrival_jitters_ns = []   # 到达抖动 (注入前)
-            e2e_jitters_ns = []       # 端到端抖动 (注入后 - target)
-            inject_costs_ns = []      # 注入耗时 (注入后 - 注入前)
-            step_rows = []            # 步进追踪表
-            for i, r in enumerate(results):
-                target_qpc, actual_qpc, inj_done_qpc, action_type, status = r
-                if status == 3:  # ST_SKIPPED
-                    continue
-                arrival_jitter_ns = (actual_qpc - target_qpc) * 1_000_000_000 // qpc_freq
-                e2e_jitter_ns = (inj_done_qpc - target_qpc) * 1_000_000_000 // qpc_freq
-                inject_cost_ns = (inj_done_qpc - actual_qpc) * 1_000_000_000 // qpc_freq
-                arrival_jitters_ns.append(arrival_jitter_ns)
-                e2e_jitters_ns.append(e2e_jitter_ns)
-                inject_costs_ns.append(inject_cost_ns)
-
-                # 步进追踪行
-                if local_test_trace and i < len(events_meta):
-                    desc, off_ns, atype = events_meta[i]
-                    step_rows.append({
-                        "step": i + 1,
-                        "desc": desc,
-                        "target_ms": off_ns / 1_000_000,
-                        "arrival_jitter_us": arrival_jitter_ns / 1000.0,
-                        "e2e_jitter_us": e2e_jitter_ns / 1000.0,
-                        "inject_cost_us": inject_cost_ns / 1000.0,
-                        "status": status,
-                    })
-
-            failed = sum(1 for r in results if r[4] != 0)
-            print(f"[standby] 完成: {macro_name} | events={len(results)} failed={failed}")
-            # 统计汇总依赖 actual_qpc/injection_done_qpc; 关闭 test_trace 时 C 层跳过 qpc_now(),
-            # 这里同步跳过汇总输出 (开关由 ENABLE_TEST_TRACE 控制, 对应"未开放参数"中的测试追踪)
-            if local_test_trace and arrival_jitters_ns:
-                arr_p50 = _stats.median(arrival_jitters_ns)
-                arr_p99 = _standby_percentile(arrival_jitters_ns, 0.99)
-                arr_p999 = _standby_percentile(arrival_jitters_ns, 0.999)
-                arr_max = max(arrival_jitters_ns)
-                e2e_p50 = _stats.median(e2e_jitters_ns)
-                e2e_p99 = _standby_percentile(e2e_jitters_ns, 0.99)
-                e2e_p999 = _standby_percentile(e2e_jitters_ns, 0.999)
-                e2e_max = max(e2e_jitters_ns)
-                inj_p50 = _stats.median(inject_costs_ns)
-                inj_max = max(inject_costs_ns)
-                print(f"  到达抖动(注入前): p50={arr_p50/1000:.2f}μs p99={arr_p99/1000:.2f}μs p99.9={arr_p999/1000:.2f}μs max={arr_max/1000:.2f}μs")
-                print(f"  端到端抖动(注入后): p50={e2e_p50/1000:.2f}μs p99={e2e_p99/1000:.2f}μs p99.9={e2e_p999/1000:.2f}μs max={e2e_max/1000:.2f}μs")
-                print(f"  注入耗时: p50={inj_p50/1000:.2f}μs max={inj_max/1000:.2f}μs")
-
-                # 步进追踪表输出
-                if step_rows:
-                    if trace_mode == "realtime":
-                        pass  # standby 是 native 执行, 无法实时输出, 统一在 final 输出
-                    print("\n          步数 |     指令     |  目标时刻(ms) | 到达抖动(μs) | 端到端抖动(μs) | 注入耗时(μs) | 状态")
-                    for row in step_rows:
-                        st_text = "OK" if row["status"] == 0 else f"FAIL({row['status']})"
-                        print(f"[动作表] {row['step']:>5} | {row['desc']:<12} | "
-                              f"{row['target_ms']:>13.3f} | {row['arrival_jitter_us']:>13.2f} | "
-                              f"{row['e2e_jitter_us']:>14.2f} | {row['inject_cost_us']:>12.2f} | {st_text}")
-                    print(f"[测试] standby 模式: {len(step_rows)}步, "
-                          f"到达p99={arr_p99/1000:.2f}μs, 端到端p99={e2e_p99/1000:.2f}μs, "
-                          f"注入p50={inj_p50/1000:.2f}μs")
-
-        return True
-
-    except Exception as e:
-        print(f"[standby] 执行失败: {e}")
-        return False
-    finally:
-        if not _skip_fallback:
-            # 兜底释放: 无论成功 / 失败 / ESC 中断, 都补发抬起, 防止"按下未抬起"
-            # C 层 release_all_pressed 已处理 native 注入的抬起, 这里是双保险
-            _standby_release_fallback()
-
-
-def _execute_via_standby_segmented(compiled_macro, stop_event, macro_name, options=None):
-    """帧延迟分段 standby 执行 (B 方案完全下沉路径)。
-
-    将含帧延迟的宏整体编译成扁平时间线 (含 ACT_RTSS_WAIT_FRAMES 标记),
-    一次 submit_segmented_timeline + start 跑完整宏。段间 RTSS 帧等待在 C 层
-    自旋完成, 消除每段重建 native 线程的 100~500μs 盲区。
-
-    C 扩展不支持新接口时自动回退到 _execute_via_standby_segmented_legacy。"""
-    import statistics as _stats
-
-    se = _standby_engine_module
-    if se is None or se is False:
-        return False
-
-    # C 扩展不支持 B 方案新接口 → 回退旧路径
-    if not (hasattr(se, "submit_segmented_timeline") and hasattr(se, "set_rtss_config")
-            and hasattr(se, "ACT_RTSS_WAIT_FRAMES")):
-        return _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name, options)
-
-    # 不含帧延迟 → 走单段路径
-    if not any(item[1] < -0.5 for item in compiled_macro):
-        return _execute_via_standby(compiled_macro, stop_event, macro_name, options)
-
-    rtss = _get_rtss()
-    rtss.reset()
-
-    _opt = options if options else {}
-    local_test_trace = _opt.get("test_trace", ENABLE_TEST_TRACE)
-    trace_mode = str(_opt.get("test_trace_mode", TEST_TRACE_OUTPUT_MODE)).lower()
-    if trace_mode not in ("realtime", "final"):
-        trace_mode = "final"
-    # 倍速: 新引擎从 options 传，旧引擎走全局 EXEC_SPEED_FACTOR
-    local_speed = _opt.get("speed_factor", EXEC_SPEED_FACTOR)
-
-    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
-    # 同时设置 thread-local 覆盖，供 legacy 回退路径的 wait_frames 使用
-    _rtss_override = _opt.get("rtss_override", "inherit")
-    if _rtss_override not in ("on", "off", "inherit"):
-        _rtss_override = "inherit"
-    rtss.set_thread_override(_rtss_override)
-
-    ST_SEGMENT_START = getattr(se, "ST_SEGMENT_START", 0x80000000)
-    ACT_RTSS_WAIT = getattr(se, "ACT_RTSS_WAIT_FRAMES", 10)
-    ST_STATUS_MASK = 0x7FFFFFFF   # 掩掉段起点高位, 取低 31 位 status
-
-    try:
-        # 1. 侦测 RTSS entry offset, 配置 C 层 (返回 entry base, C 层自读 t1/fr/ft)
-        #    按 rtss_override 决策: off=强制 fallback(entry_offset=0); on/inherit=尝试侦测
-        if _rtss_override == "off":
-            entry_offset = 0
-        else:
-            entry_offset = rtss.detect_entry_offset()
-        se.set_rtss_config(entry_offset, RTSS_FALLBACK_MS_PER_FRAME)
-        if entry_offset == 0:
-            print(f"[standby+RTSS] {macro_name}: 未检测到 RTSS 目标 entry, C 层走 fallback {RTSS_FALLBACK_MS_PER_FRAME}ms/帧")
-        # 1b. 按 ENABLE_TEST_TRACE 同步开关 C 层统计: 关闭时跳过两次 qpc_now(), 榨干 ~10ns 精度
-        if hasattr(se, "set_stats_enabled"):
-            se.set_stats_enabled(1 if local_test_trace else 0)
-
-        # 2. 编译分段时间线 (含 ACT_RTSS_WAIT_FRAMES; ms 延迟按 speed_factor 缩放, 帧延迟不缩放)
-        events, events_meta = compile_to_timeline(compiled_macro, mode="segmented", speed_factor=local_speed)
-        if not events:
-            print(f"[standby+RTSS] {macro_name}: 无可执行事件, 跳过")
-            return True
-        if len(events) > STANDBY_MAX_EVENTS:
-            raise ValueError(f"时间线事件数 {len(events)} 超过上限 {STANDBY_MAX_EVENTS}")
-
-        n_barriers = sum(1 for e in events if e[1] == ACT_RTSS_WAIT)
-        n_segs = n_barriers + 1
-        print(f"[standby+RTSS] {macro_name}: {n_segs}段, 帧边界{n_barriers}处 (B方案下沉)")
-
-        # 3. 选核
-        if STANDBY_FIXED_CORE >= 0:
-            core = STANDBY_FIXED_CORE
-        elif STANDBY_AUTO_PICK_CORE:
-            core = se.auto_pick_core()
-            if core is None:
-                raise RuntimeError("无法检测可用 P-core")
-        else:
-            core = 1
-
-        # 4. 提交分段时间线 (不 track_reset, 保留跨段按键状态)
-        n = se.submit_segmented_timeline(events, 0)
-        if n < 0:
-            raise RuntimeError("submit_segmented_timeline 失败")
-
-        # 5. 启动 standby 线程 (keep_pressed=0: 整体跑完由 C 层 release_all_pressed)
-        use_ic = 1 if (STANDBY_USE_INTERCEPTION and se.is_interception_available()) else 0
-        # config: 0=CONFIG_A(基线), 1=CONFIG_B(PrecisionScope)
-        ps_mask = 0
-        if STANDBY_PS_PRIORITY: ps_mask |= se.PS_REALTIME | se.PS_PROC_BOOST_OFF | se.PS_THREAD_BOOST_OFF
-        if STANDBY_PS_TIMER:    ps_mask |= se.PS_NT_TIMER | se.PS_TIME_PERIOD
-        if STANDBY_PS_MMCSS:    ps_mask |= se.PS_MMCSS
-        if STANDBY_PS_POWER:    ps_mask |= se.PS_POWER_THROTTLE
-        standby_config = 1 if ps_mask else 0
-        if standby_config and hasattr(se, "set_precision_mask"):
-            se.set_precision_mask(ps_mask)
-        se.start(core, use_ic, 0, standby_config)
-        print(f"[standby+RTSS] 启动: CPU{core}, events={len(events)}, interception={use_ic}, precision_scope={'on(mask=0x%02x)' % ps_mask if standby_config else 'off'}, macro={macro_name}")
-
-        # 6. 等待完成或停止
-        while not stop_event.is_set():
-            if se.wait_completion(2):
-                break
-        else:
-            se.stop()
-            print(f"[standby+RTSS] 用户终止: {macro_name}")
-            return True
-
-        # 7. 读取结果, 计算抖动 (μs)
-        results = se.get_results()
-        qpc_freq = se.get_qpc_frequency()
-        if results and qpc_freq > 0:
-            arrival_jitters_ns = []
-            e2e_jitters_ns = []
-            inject_costs_ns = []
-            seg_start_jitters_ns = []   # 段起点偏移 (B 方案核心验证指标)
-            step_rows = []
-
-            for i, r in enumerate(results):
-                target_qpc, actual_qpc, inj_done_qpc, action_type, status = r
-                low_status = status & ST_STATUS_MASK
-                if low_status == 3:   # ST_SKIPPED
-                    continue
-                arrival_jitter_ns = (actual_qpc - target_qpc) * 1_000_000_000 // qpc_freq
-                e2e_jitter_ns = (inj_done_qpc - target_qpc) * 1_000_000_000 // qpc_freq
-                inject_cost_ns = (inj_done_qpc - actual_qpc) * 1_000_000_000 // qpc_freq
-                arrival_jitters_ns.append(arrival_jitter_ns)
-                e2e_jitters_ns.append(e2e_jitter_ns)
-                inject_costs_ns.append(inject_cost_ns)
-
-                # 段起点事件 (ACT_RTSS_WAIT 后的首个事件) 单独统计
-                is_seg_start = (status & ST_SEGMENT_START) != 0 and action_type != ACT_RTSS_WAIT
-                if is_seg_start:
-                    seg_start_jitters_ns.append(arrival_jitter_ns)
-
-                if local_test_trace and i < len(events_meta):
-                    desc, off_ns, atype = events_meta[i]
-                    step_rows.append({
-                        "step": i + 1,
-                        "desc": desc,
-                        "target_ms": off_ns / 1_000_000,
-                        "arrival_jitter_us": arrival_jitter_ns / 1000.0,
-                        "e2e_jitter_us": e2e_jitter_ns / 1000.0,
-                        "inject_cost_us": inject_cost_ns / 1000.0,
-                        "status": low_status,
-                        "seg_start": is_seg_start,
-                    })
-
-            failed = sum(1 for r in results if (r[4] & ST_STATUS_MASK) != 0
-                         and (r[4] & ST_STATUS_MASK) != 3)   # 不计 SKIPPED
-            print(f"[standby+RTSS] 完成: {macro_name} | events={len(results)} failed={failed}")
-            # 统计汇总依赖 actual_qpc/injection_done_qpc; 关闭 test_trace 时 C 层跳过 qpc_now(),
-            # 这里同步跳过汇总输出 (开关由 ENABLE_TEST_TRACE 控制, 对应"未开放参数"中的测试追踪)
-            if local_test_trace and arrival_jitters_ns:
-                arr_p50 = _stats.median(arrival_jitters_ns)
-                arr_p99 = _standby_percentile(arrival_jitters_ns, 0.99)
-                arr_p999 = _standby_percentile(arrival_jitters_ns, 0.999)
-                arr_max = max(arrival_jitters_ns)
-                e2e_p50 = _stats.median(e2e_jitters_ns)
-                e2e_p99 = _standby_percentile(e2e_jitters_ns, 0.99)
-                e2e_p999 = _standby_percentile(e2e_jitters_ns, 0.999)
-                e2e_max = max(e2e_jitters_ns)
-                inj_p50 = _stats.median(inject_costs_ns)
-                inj_max = max(inject_costs_ns)
-
-                print(f"  到达抖动(注入前): p50={arr_p50/1000:.2f}μs p99={arr_p99/1000:.2f}μs p99.9={arr_p999/1000:.2f}μs max={arr_max/1000:.2f}μs")
-                print(f"  端到端抖动(注入后): p50={e2e_p50/1000:.2f}μs p99={e2e_p99/1000:.2f}μs p99.9={e2e_p999/1000:.2f}μs max={e2e_max/1000:.2f}μs")
-                print(f"  注入耗时: p50={inj_p50/1000:.2f}μs max={inj_max/1000:.2f}μs")
-
-                # 段起点偏移 (B 方案核心验证指标: 预期 ≤1μs)
-                if seg_start_jitters_ns:
-                    seg_vals_us = [v / 1000.0 for v in seg_start_jitters_ns]
-                    seg_str = " ".join(f"段{i+2}={v:.2f}μs" for i, v in enumerate(seg_vals_us))
-                    seg_max = max(seg_vals_us)
-                    print(f"  段起点偏移: {seg_str} | max={seg_max:.2f}μs")
-
-                # 步进追踪表 (μs 单位)
-                if step_rows:
-                    if trace_mode == "realtime":
-                        pass  # standby 是 native 执行, 无法实时输出
-                    print("\n          步数 |     指令     |  目标时刻(ms) | 到达抖动(μs) | 端到端抖动(μs) | 注入耗时(μs) | 状态")
-                    for row in step_rows:
-                        st_text = "OK" if row["status"] == 0 else f"FAIL({row['status']})"
-                        seg_mark = " [段起点]" if row["seg_start"] else ""
-                        print(f"[动作表] {row['step']:>5} | {row['desc']:<12} | "
-                              f"{row['target_ms']:>13.3f} | {row['arrival_jitter_us']:>13.2f} | "
-                              f"{row['e2e_jitter_us']:>14.2f} | {row['inject_cost_us']:>12.2f} | {st_text}{seg_mark}")
-
-        return True
-
-    except Exception as e:
-        print(f"[standby+RTSS] 执行失败: {e}")
-        return False
-    finally:
-        _standby_release_fallback()
-        try:
-            rtss.clear_thread_override()
-        except Exception:
-            pass
-
-
-def _execute_via_standby_segmented_legacy(compiled_macro, stop_event, macro_name, options=None):
-    """旧路径: 段循环 + 每段重建 native 线程。C 扩展不支持 B 方案时回退。
-    每段 CreateThread 引入 100~500μs 盲区, 段2+ 第一个事件 target 基于线程启动瞬间。"""
-    se = _standby_engine_module
-    if se is None or se is False:
-        return False
-
-    rtss = _get_rtss()
-    rtss.reset()
-
-    # 节点级 RTSS 覆盖（来自"调用宏"节点的 rtss_override 参数）
-    _rtss_override = (options or {}).get("rtss_override", "inherit")
-    if _rtss_override not in ("on", "off", "inherit"):
-        _rtss_override = "inherit"
-    rtss.set_thread_override(_rtss_override)
-
-    # ── 切分段 ──
-    # 遇到 delay<0（帧延迟）的 item：该 item 的动作加入当前段（delay 清零），随后开帧等待
-    segments: list[tuple[list, int]] = []  # (seg_items, frames_after)
-    current: list = []
-    for item in compiled_macro:
-        func, delay, atype, desc, raw_info = item
-        if delay < -0.5:
-            frames = int(-delay + 0.5)
-            current.append((func, 0.0, atype, desc, raw_info))  # 动作 ms 延迟置0
-            segments.append((list(current), frames))
-            current = []
-        else:
-            current.append(item)
-    if current:
-        segments.append((list(current), 0))
-
-    n_pts = sum(1 for _, f in segments if f > 0)
-    print(f"[standby+RTSS-legacy] {macro_name}: {len(segments)}段, 帧边界{n_pts}处")
-
-    seg_options = dict(options) if options else {}
-    seg_options["_no_release_fallback"] = True
-    seg_options["_keep_pressed"] = True
-
-    n_segs = len(segments)
-
-    try:
-        for seg_idx, (seg_items, frames_after) in enumerate(segments):
-            if stop_event.is_set():
-                break
-
-            if seg_items:
-                seg_name = f"{macro_name}[段{seg_idx + 1}/{n_segs}]"
-                seg_options["_keep_pressed"] = (seg_idx < n_segs - 1)
-                ok = _execute_via_standby(seg_items, stop_event, seg_name, seg_options)
-                if not ok:
-                    return False
-
-            if frames_after > 0 and not stop_event.is_set():
-                t0 = time.perf_counter()
-                rtss.wait_frames(frames_after, stop_event)
-                dt_ms = (time.perf_counter() - t0) * 1000.0
-                print(f"[standby+RTSS-legacy] 帧等待 {frames_after}帧 实耗 {dt_ms:.1f}ms")
-
-        return True
-
-    finally:
-        _standby_release_fallback()
-        try:
-            rtss.clear_thread_override()
-        except Exception:
-            pass
 
 
 def trigger_macro(trigger_key, start_paused=False):
@@ -2933,33 +1698,11 @@ def trigger_macro(trigger_key, start_paused=False):
             if ENABLE_PRO_AUDIO and not apply_pro_audio(True):
                 print(">>> [系统] ProAudio 注入失败，继续使用普通线程调度")
 
-            # —— Standby 引擎分支 (工业级精度, native dll 级) ——
-            # 简单线性宏走 native standby 线程, 执行段绕过 Python/GIL
-            if ENABLE_STANDBY_ENGINE and _standby_available():
-                try:
-                    # 传 options 让 standby 路径也应用 EXEC_SPEED_FACTOR (ms 延迟缩放)
-                    _standby_opts = {"speed_factor": EXEC_SPEED_FACTOR}
-                    ok = _execute_via_standby(worker_compiled, worker_stop, worker_macro_name, _standby_opts)
-                    if ok:
-                        return
-                    if not STANDBY_FALLBACK_ON_FAIL:
-                        print(f"[standby] 执行失败且未启用回退, 终止宏: {worker_macro_name}")
-                        return
-                    print(f"[standby] 回退到 Python 路径: {worker_macro_name}")
-                except Exception as e:
-                    if not STANDBY_FALLBACK_ON_FAIL:
-                        raise
-                    print(f"[standby] 异常, 回退到 Python 路径: {e}")
-
-            # —— 现有 Python 执行路径（保持不变）——
             assigned_core = _pick_core_for_macro(worker_macro_id)
             if assigned_core is not None:
                 try:
-                    # set_thread_affinity 现在返回 bool：失败时不再误报“已绑核”
-                    if set_thread_affinity(assigned_core):
-                        print(f"[宏绑核] 实例#{worker_macro_id} -> CPU{assigned_core}")
-                    else:
-                        print(f"[宏绑核] CPU{assigned_core} 绑定失败，改为系统调度")
+                    set_thread_affinity(assigned_core)
+                    print(f"[宏绑核] 实例#{worker_macro_id} -> CPU{assigned_core}")
                 except Exception as affinity_err:
                     print(f"[宏绑核] 绑定失败，改为系统调度：{affinity_err}")
 
@@ -3099,8 +1842,6 @@ def batch_compiled_macro(compiled_macro):
         if atype in ("view", "wait", "batch", "move_to", "scroll"):
             return False
         if raw is None:
-            return False
-        if delay < 0:  # 帧延迟，不可批处理（帧边界不可预先合并）
             return False
         if delay > threshold_s:
             return False
@@ -3274,60 +2015,6 @@ def get_listener_state():
 def request_stop_listeners():
     """请求停止键鼠监听循环。"""
     listener_control_event.set()
-
-
-def run_macro_file_once(filepath, options=None, macro_name=None):
-    """直接执行一个宏文件（供宏编辑器"测试点运行"使用）。
-
-    与"按键绑定触发"的区别：不走触发键占位、不进预编译缓存；但同样
-      · 注册进 active_macros（因此"停止全部宏 / 全局暂停"对它同样有效）
-      · 走 standby 分支（可用时）+ Python 分支，保持精度一致
-    返回 (ok: bool, message: str)。
-    注意：**加载与编译是同步完成的**，返回后调用方可以安全删除临时宏文件。
-    """
-    try:
-        script = load_macro_from_file(filepath)
-        compiled = compile_macro(script)
-        _batch = globals().get("batch_compiled_macro")
-        if callable(_batch):
-            compiled = _batch(compiled)
-    except Exception as e:  # noqa: BLE001
-        return False, f"加载/编译失败：{e}"
-
-    if not compiled:
-        return False, "没有可执行动作（切片为空或全部被跳过）"
-
-    macro_id = next_macro_id()
-    stop_event = threading.Event()
-    pause_event = threading.Event()
-    name = macro_name or os.path.basename(filepath)
-    compiled_list = list(compiled)
-
-    def _worker():
-        try:
-            boost_thread_priority()
-            _opt = dict(options or {})
-            if ENABLE_STANDBY_ENGINE and _standby_available():
-                try:
-                    if _execute_via_standby(compiled_list, stop_event, name, _opt):
-                        return
-                    if not STANDBY_FALLBACK_ON_FAIL:
-                        return
-                    print(f"[测试运行] standby 未完成，回退 Python 路径：{name}")
-                except Exception as e:  # noqa: BLE001
-                    if not STANDBY_FALLBACK_ON_FAIL:
-                        raise
-                    print(f"[测试运行] standby 异常，回退 Python 路径：{e}")
-            execute_macro_once(compiled_list, stop_event, pause_event, macro_name=name, options=_opt)
-        except Exception as e:  # noqa: BLE001
-            print(f"[测试运行] 执行出错：{e}")
-        finally:
-            unregister_active_macro(macro_id)
-
-    th = threading.Thread(target=_worker, name=f"MacroTestRun-{macro_id}", daemon=True)
-    register_active_macro(macro_id, f"__testrun__{macro_id}", name, th, stop_event, pause_event)
-    th.start()
-    return True, f"已启动测试运行（{len(compiled_list)} 步）"
     return True
 
 
@@ -3345,17 +2032,7 @@ def start_listeners():
     listener_control_event.clear()
     listener_running = True
 
-    # 原来这里是 boost_process_priority()，无条件把整个进程抬到 HIGH_PRIORITY_CLASS
-    # 且永不恢复 —— 一旦启动过监听器，WebUI 进程（含 OCR / 截图 / 监视器线程）
-    # 就永久以高优先级运行，直接和游戏抢 CPU。改为按档位设置，且可恢复。
-    _startup_tier = globals().get("PROCESS_PRIORITY_TIER", "normal")
-    if globals().get("ENABLE_REALTIME_PRIORITY"):
-        _startup_tier = "realtime"
-    try:
-        set_process_priority_tier(_startup_tier)
-        print(f"[系统] 进程优先级档位: {_startup_tier}")
-    except Exception:
-        boost_process_priority()
+    boost_process_priority()
     if ENABLE_REALTIME_PRIORITY:
         ok = apply_realtime_priority(True)
         print(f"[系统] 进程实时优先级: {'已开启' if ok else '开启失败，保持当前'}")
@@ -3391,12 +2068,9 @@ def start_listeners():
     global_pause_key_name = normalize_hotkey_to_name(GLOBAL_PAUSE_TOGGLE_KEY) or str(GLOBAL_PAUSE_TOGGLE_KEY)
     print(f"[系统] 按{stop_key_name}终止所有正在执行的宏 | 按{global_pause_key_name}切换全局暂停/恢复")
 
-    interception_ok = init_interception_backend()
-    if interception_ok:
-        kb_actual = _interception_send_key is not None and USE_INTERCEPTION_KEYBOARD
-        mouse_actual = _interception_send_mouse is not None and USE_INTERCEPTION_MOUSE
-        print(f"[系统] 输入后端: keyboard={'Interception' if kb_actual else 'SendInput'}, "
-              f"mouse={'Interception' if mouse_actual else 'SendInput'}")
+    if USE_INTERCEPTION:
+        print(f"[系统] 输入后端: keyboard={'Interception' if USE_INTERCEPTION_KEYBOARD else 'SendInput'}, "
+              f"mouse={'Interception' if USE_INTERCEPTION_MOUSE else 'SendInput'}")
     else:
         print("[系统] 输入后端: keyboard=SendInput, mouse=SendInput")
 

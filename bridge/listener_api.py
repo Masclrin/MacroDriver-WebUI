@@ -12,32 +12,12 @@ class ListenerApiMixin:
         if self.executor is None:
             raise RuntimeError("宏执行框架不可用")
 
-    def _reload_all_macro_caches(self):
-        """刷新所有已绑定触发键的宏缓存，确保启动监听后使用最新宏数据。"""
-        refreshed = 0
-        for trigger in list(self.executor.MACRO_BINDINGS.keys()):
-            try:
-                self._refresh_binding_cache(trigger, reason="启动监听-全量重载")
-                refreshed += 1
-            except Exception:
-                pass
-        if refreshed:
-            self.console.push(f"[宏重载] 已刷新 {refreshed} 个触发键的宏缓存", "stdout")
-
     def start_global_listeners(self):
         self._require_executor()
-        # RTSS 启动检测（按配置模式，结果输出到控制台）
-        try:
-            if hasattr(self.executor, "rtss_startup_check"):
-                mode = getattr(self.executor, "RTSS_STARTUP_CHECK_MODE", "off")
-                self.executor.rtss_startup_check(mode)
-        except Exception:
-            pass
         with self._bridge_lock:
             state = self.executor.get_listener_state() if hasattr(self.executor, "get_listener_state") else {"running": False}
             running = bool(state.get("running"))
             if running and self._listener_thread and self._listener_thread.is_alive():
-                self._reload_all_macro_caches()
                 return self._ok(already_running=True)
 
             def _worker():
@@ -52,7 +32,6 @@ class ListenerApiMixin:
             self._listener_thread = threading.Thread(target=_worker, name="MacroGlobalListenerThread", daemon=True)
             self._listener_thread.start()
 
-        self._reload_all_macro_caches()
         return self._ok(started=True)
 
     def stop_global_listeners(self):

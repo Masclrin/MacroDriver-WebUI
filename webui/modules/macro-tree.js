@@ -1,10 +1,10 @@
-const expandedByView = new Map();
+const collapsedByView = new Map();
 
-function ensureExpandedSet(viewId) {
-  if (!expandedByView.has(viewId)) {
-    expandedByView.set(viewId, new Set());
+function ensureCollapsedSet(viewId) {
+  if (!collapsedByView.has(viewId)) {
+    collapsedByView.set(viewId, new Set());
   }
-  return expandedByView.get(viewId);
+  return collapsedByView.get(viewId);
 }
 
 function normalizeTree(tree) {
@@ -19,26 +19,23 @@ function normalizeTree(tree) {
   };
 }
 
-function buildRows(tree, depth, expandedSet, rows) {
+function buildRows(tree, depth, collapsedSet, rows) {
   const folders = [...tree.folders].sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-Hans-CN'));
   const files = [...tree.files].sort((a, b) => String(a.path).localeCompare(String(b.path), 'zh-Hans-CN'));
 
   folders.forEach((folder) => {
     const folderPath = String(folder.path || '');
-    // 默认全折叠，仅当文件夹路径在 expandedSet 中时才展开其子内容
-    // 根节点“宏”的直接子文件夹/文件始终显示（由 tree.folders/files 遍历产生），
-    // 但子文件夹的内容默认折叠，需用户点击展开
-    const expanded = expandedSet.has(folderPath);
+    const collapsed = collapsedSet.has(folderPath);
     rows.push({
       kind: 'folder',
       name: String(folder.name || ''),
       path: folderPath,
       depth,
-      expanded,
+      collapsed,
     });
 
-    if (expanded) {
-      buildRows(normalizeTree(folder), depth + 1, expandedSet, rows);
+    if (!collapsed) {
+      buildRows(normalizeTree(folder), depth + 1, collapsedSet, rows);
     }
   });
 
@@ -71,18 +68,10 @@ export function renderMacroTreeList({
   if (!container) return;
 
   const safeTree = normalizeTree(tree);
-  const expandedSet = ensureExpandedSet(viewId);
-
-  // 默认展开"宏"父文件夹的直接子文件夹（depth=0），再下一级保持折叠
-  safeTree.folders.forEach((f) => {
-    const folderPath = String(f.path || '');
-    if (!expandedSet.has(folderPath)) {
-      expandedSet.add(folderPath);
-    }
-  });
+  const collapsedSet = ensureCollapsedSet(viewId);
 
   const rows = [];
-  buildRows(safeTree, 0, expandedSet, rows);
+  buildRows(safeTree, 0, collapsedSet, rows);
 
   container.innerHTML = '';
 
@@ -101,13 +90,13 @@ export function renderMacroTreeList({
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'macro-tree-toggle';
-      toggle.textContent = row.expanded ? '▼' : '▶';
+      toggle.textContent = row.collapsed ? '▶' : '▼';
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (expandedSet.has(row.path)) {
-          expandedSet.delete(row.path);
+        if (collapsedSet.has(row.path)) {
+          collapsedSet.delete(row.path);
         } else {
-          expandedSet.add(row.path);
+          collapsedSet.add(row.path);
         }
         renderMacroTreeList({
           container,

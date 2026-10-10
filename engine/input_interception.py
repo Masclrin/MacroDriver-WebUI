@@ -68,8 +68,6 @@ SC_MAP = {
     "6": 0x07, "7": 0x08, "8": 0x09, "9": 0x0A, "0": 0x0B,
     "enter": 0x1C, "esc": 0x01, "space": 0x39, "tab": 0x0F,
     "shift": 0x2A, "ctrl": 0x1D, "alt": 0x38,
-    "shift_l": 0x2A, "shift_r": 0x36, "ctrl_l": 0x1D, "ctrl_r": 0x1D,
-    "alt_l": 0x38, "alt_r": 0x38,
     "caps_lock": 0x3A, "back": 0x0E, "delete": 0x53,
     "f1": 0x3B, "f2": 0x3C, "f3": 0x3D, "f4": 0x3E,
     "f5": 0x3F, "f6": 0x40, "f7": 0x41, "f8": 0x42,
@@ -78,10 +76,10 @@ SC_MAP = {
     "left_arrow": 0x4B, "right_arrow": 0x4D,
 }
 
+# 扩展键标志（右Shift、右Ctrl、右Alt、Enter、方向键等）
 EXTENDED_KEYS = {
     "right_arrow", "down_arrow", "left_arrow", "up_arrow",
     "right_ctrl", "right_alt", "right_shift",
-    "ctrl_r", "alt_r", "shift_r",
     "insert", "delete", "home", "end", "page_up", "page_down",
     "numpad_enter",
 }
@@ -116,12 +114,10 @@ InterceptionStroke = ctypes.c_ubyte * ctypes.sizeof(InterceptionMouseStroke)
 def _resolve_dll_path():
     """优先从工作区自带目录解析 interception.dll。"""
     module_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(module_dir)
     arch_dir = "x64" if ctypes.sizeof(ctypes.c_void_p) == 8 else "x86"
 
     candidates = [
         os.environ.get("INTERCEPTION_DLL"),
-        os.path.join(project_root, "Interception", "library", arch_dir, "interception.dll"),
         os.path.join(module_dir, "interception.dll"),
         os.path.join(module_dir, "Interception", "library", arch_dir, "interception.dll"),
     ]
@@ -195,7 +191,6 @@ class InterceptionContext:
             if INTERCEPTION_CAPTURE_PHYSICAL_INPUT
             else INTERCEPTION_FILTER_KEY_NONE
         )
-        self._keyboard_filter = keyboard_filter
         self._lib.interception_set_filter(
             self._context,
             self._predicate_keyboard,
@@ -210,7 +205,6 @@ class InterceptionContext:
             if INTERCEPTION_CAPTURE_PHYSICAL_INPUT
             else INTERCEPTION_FILTER_MOUSE_NONE
         )
-        self._mouse_filter = mouse_filter
         self._lib.interception_set_filter(
             self._context,
             self._predicate_mouse,
@@ -261,13 +255,6 @@ class InterceptionContext:
             if self._lib.interception_is_mouse(dev):
                 devices.append(dev)
 
-        if set(devices) != set(self._mouse_devices):
-            self._lib.interception_set_filter(
-                self._context,
-                self._predicate_mouse,
-                self._mouse_filter,
-            )
-
         self._mouse_devices = devices
         self._mouse_device = devices[0] if devices else -1
         if self._preferred_mouse_device not in devices:
@@ -284,13 +271,6 @@ class InterceptionContext:
         for dev in range(INTERCEPTION_KEYBOARD_START, INTERCEPTION_KEYBOARD_END + 1):
             if self._lib.interception_is_keyboard(dev):
                 devices.append(dev)
-
-        if set(devices) != set(self._keyboard_devices):
-            self._lib.interception_set_filter(
-                self._context,
-                self._predicate_keyboard,
-                self._keyboard_filter,
-            )
 
         self._keyboard_devices = devices
         self._device = devices[0] if devices else -1

@@ -47,12 +47,6 @@ class PluginRegistry:
         cls._node_types.clear()
         cls._detect_engines.clear()
 
-    @classmethod
-    def unregister_plugin_nodes(cls):
-        to_remove = [k for k in cls._node_types if k.startswith("plugin/")]
-        for k in to_remove:
-            del cls._node_types[k]
-
 
 def register_builtin_nodes():
     from automation.nodes import (
@@ -73,44 +67,3 @@ def register_builtin_nodes():
     register_utility_nodes(PluginRegistry)
     register_monitor_nodes(PluginRegistry)
     register_flow_nodes(PluginRegistry)
-    register_plugin_nodes()
-
-
-def register_plugin_nodes():
-    try:
-        from core.plugin_manager import PluginManager
-        import json
-        plugins = PluginManager.list_all()
-        for plugin_info in plugins:
-            plugin_id = plugin_info["id"]
-            manifest = PluginManager.get_manifest(plugin_id)
-            if not manifest:
-                continue
-            node_ids = manifest.get("nodes", [])
-            color = manifest.get("color", "#a855f7")
-            icon = manifest.get("icon", "fa-solid fa-puzzle-piece")
-            node_display_names = manifest.get("node_display_names", {})
-            for node_id in node_ids:
-                type_key = f"plugin/{node_id}"
-                if PluginRegistry.get_node(type_key):
-                    continue
-                display_name = node_display_names.get(node_id, node_id.replace("_", " ").title())
-                node_params = manifest.get("node_params", {}).get(node_id, {})
-                if not node_params:
-                    node_params = {"__placeholder": {"type": "string", "default": "", "description": "此节点无可配置参数"}}
-                node_inputs = manifest.get("node_inputs", {}).get(node_id, [{"name": "in", "type": "flow"}])
-                node_outputs = manifest.get("node_outputs", {}).get(node_id, [{"name": "next", "type": "flow"}])
-                PluginRegistry.register_node({
-                    "type": type_key,
-                    "category": "plugin",
-                    "display_name": display_name,
-                    "color": color,
-                    "icon": icon,
-                    "inputs": node_inputs,
-                    "outputs": node_outputs,
-                    "params_schema": node_params,
-                    "handler": f"_plugin_{plugin_id}",
-                    "_plugin_id": plugin_id,
-                })
-    except Exception as e:
-        print(f"[Registry] 注册插件节点失败: {e}")

@@ -10,8 +10,7 @@
 :root{
   --bg-deep:#0b0e13;--bg:#0f1319;--bg-raised:#151a23;--bg-surface:#1b2130;
   --bg-hover:#232b3c;--border:#262f40;--border-lt:#34405a;
-  --txt:#dadfe9;--txt2:#a5afc3;--txt3:#79829a;
-  --txt1:var(--txt);
+  --txt:#dce3ef;--txt2:#818da6;--txt3:#4d5770;
   --acc:#22d3ee;--acc-h:#67e8f9;--acc-dim:rgba(34,211,238,.12);
   --c-action:#4ade80;--c-action-d:rgba(74,222,128,.12);
   --c-detect:#facc15;--c-detect-d:rgba(250,204,21,.12);
@@ -28,26 +27,6 @@
   --port-flow:#94a3b8;--port-bool:#ef4444;--port-number:#22c55e;
   --port-string:#60a5fa;--port-any:#94a3b8;
 }
-:root.theme-light{
-  --bg-deep:#dde3ea;--bg:#e4e8ec;--bg-raised:#f4f7fa;--bg-surface:#f4f7fa;
-  --bg-hover:#dde3ea;--border:#c8d1da;--border-lt:#a8b3bd;
-  --txt:#1f2328;--txt2:#656d76;--txt3:#8c959f;
-  --sh:0 4px 12px rgba(0,0,0,.08);--sh-s:0 2px 6px rgba(0,0,0,.06);
-}
-:root.theme-light body{background:var(--bg-deep)}
-:root.theme-light{color-scheme:light}
-:root.theme-light ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.2)}
-:root.theme-light ::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.35)}
-:root.theme-light ::-webkit-scrollbar-track{background:rgba(0,0,0,.04)}
-:root.theme-light #mm{background:rgba(255,255,255,.9);border-color:var(--border)}
-/* 节点画布快捷参数 label 框：暗色主题用 rgba(255,255,255,.0x)，亮色主题下与背景融合，改为黑色半透明 */
-:root.theme-light .nf{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.12)}
-:root.theme-light .nf:focus{background:rgba(0,0,0,.06)}
-:root.theme-light .nd-row:hover .nf{background:rgba(0,0,0,.08);border-color:rgba(0,0,0,.18)}
-:root.theme-light .nf-sel{background-color:var(--bg-surface)}
-:root.theme-light .nf-chk .chk-mk{background:rgba(0,0,0,.04);border-color:rgba(0,0,0,.2)}
-:root.theme-light .nf-ro{background:rgba(0,0,0,.04)}
-:root.theme-light .nf-ro:hover{background:rgba(0,0,0,.08)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--fui);background:var(--bg-deep);color:var(--txt);overflow:hidden;height:100vh;font-size:13px;line-height:1.5;user-select:none}
 ::-webkit-scrollbar{width:5px;height:5px}
@@ -94,8 +73,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .sb-s-w{position:relative}
 .sb-s-w i{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--txt3);font-size:10px;pointer-events:none}
 .sb-s input{width:100%;padding:5px 8px 5px 28px;background:var(--bg);font-size:11px}
-.sb-s-clear{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--txt3);cursor:pointer;font-size:14px;line-height:1;padding:0 4px}
-.sb-s-clear:hover{color:var(--txt)}
 .sb-n{flex:1;overflow-y:auto;padding:2px 0}
 .sb-c{margin-top:2px}
 .sb-ch{display:flex;align-items:center;gap:5px;padding:5px 10px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--txt3);cursor:pointer;transition:color var(--t)}
@@ -137,17 +114,7 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .macro-tree-row.active .macro-tree-name{color:var(--acc,#22d3ee)}
 .macro-tree-row.opened .macro-tree-name{color:#22c55e}
 
-#vars-p{border-top:1px solid var(--border);flex-shrink:0}
-#vars-p .vp-h{cursor:pointer;display:flex;align-items:center;gap:4px;padding:6px 10px;font-size:11px;font-weight:600;color:var(--txt2);background:var(--bg-raised);border-bottom:1px solid var(--border)}
-#vars-p .vp-h:hover{color:var(--txt);background:var(--bg-hover)}
-#vars-p.collapsed #vl{display:none}
-#var-float{position:fixed;z-index:200;background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:280px;min-width:200px;min-height:150px;max-height:400px;display:none;flex-direction:column;overflow:auto;resize:both}
-#var-float.visible{display:flex}
-#var-float .vf-h{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);cursor:move;user-select:none}
-#var-float .vf-h span{flex:1;font-size:11px;font-weight:600;color:var(--txt2)}
-#var-float .vf-h button{background:none;border:none;color:var(--txt3);cursor:pointer;padding:2px 6px;font-size:12px}
-#var-float .vf-h button:hover{color:var(--txt)}
-#var-float #vl-f{overflow-y:auto;flex:1;padding:4px 0}
+#vars-p{border-top:1px solid var(--border);max-height:160px;overflow-y:auto}
 .vp-h{padding:5px 10px;font-size:10px;font-weight:600;color:var(--txt3);border-bottom:1px solid var(--border)}
 .vi{display:flex;align-items:center;gap:5px;padding:3px 10px;font-size:10px}
 .vi .vn{color:var(--c-var);font-family:var(--fmo);font-weight:500;min-width:44px}
@@ -187,7 +154,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .nd:hover .nx{opacity:1}
 .nd-h .nx:hover{background:rgba(248,113,113,.2);color:var(--red)}
 .nd-b{padding:5px 0;overflow:hidden}
-.nd[data-type="variable/var_set"] .nd-b{overflow:visible}
 .nd-body-grid{display:flex;flex-direction:column;gap:1px}
 .nd-body-grid .nd-row{display:flex;align-items:center;gap:2px;min-height:18px;padding:0 6px}
 .nd-body-grid .nd-row .pi-s{display:flex;flex-direction:column;gap:1px;flex-shrink:0;min-width:28px;align-items:flex-start}
@@ -201,10 +167,9 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .nd-row:hover .pl{color:var(--txt1);opacity:1}
 .nd-row:hover .nf{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15)}
 .nf{flex:1;min-width:0;font-size:10px;font-family:var(--fmo);color:var(--txt1);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:3px;padding:2px 5px;outline:none;transition:border-color .15s;max-width:100%;overflow:hidden;height:20px;box-sizing:border-box}
-.nf-vl, .nd-compact .nf-vl{height:auto;overflow:visible;background:transparent;border:none;padding:0;margin-bottom:6px}
 .nf:focus{border-color:var(--acc);background:rgba(255,255,255,.1)}
-.nf-sel{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:16px;background-color:var(--bg-surface);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 5px center;background-size:6px;width:100%;max-width:100%;box-sizing:border-box}
-.nf-sel option{background-color:var(--bg-surface);color:var(--txt);padding:2px 6px}
+.nf-sel{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:16px;background-color:rgba(30,30,40,.95);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2394a3b8'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 5px center;background-size:6px;width:100%;max-width:100%;box-sizing:border-box}
+.nf-sel option{background-color:#1e1e28;color:#e2e8f0;padding:2px 6px}
 .nf-num{width:50px;flex:none;text-align:right}
 .nf-txt{width:100%}
 .nf-col{width:24px;height:18px;flex:none;padding:1px;cursor:pointer;border-radius:3px}
@@ -259,7 +224,7 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 
 .nd-badge{position:absolute;top:-5px;right:-5px;width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;z-index:5;background:var(--c-mon);box-shadow:0 0 6px var(--c-mon-d)}
 
-.an{position:absolute;min-width:60px;max-width:280px;padding:6px 10px;border-radius:8px;border:none;background:linear-gradient(135deg,rgba(251,191,36,.55),rgba(251,191,36,.42));color:var(--txt);font-size:11px;line-height:1.45;pointer-events:auto;cursor:move;box-shadow:0 2px 8px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.1);z-index:3;transition:box-shadow .15s,transform .1s}
+.an{position:absolute;min-width:60px;max-width:280px;padding:6px 10px;border-radius:8px;border:none;background:linear-gradient(135deg,rgba(251,191,36,.18),rgba(251,191,36,.08));color:var(--txt);font-size:11px;line-height:1.45;pointer-events:auto;cursor:move;box-shadow:0 2px 8px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.1);z-index:3;transition:box-shadow .15s,transform .1s}
 .an:hover{box-shadow:0 4px 16px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.15)}
 .an.sel{outline:2px solid var(--acc);outline-offset:2px;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:4}
 .an.collapsed{padding:4px 8px;max-width:120px}
@@ -328,7 +293,7 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .region-grid .region-cell input{padding:4px 6px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);font-family:var(--fmo);font-size:12px;outline:none;transition:border-color var(--t)}
 .region-grid .region-cell input:focus{border-color:var(--acc)}
 .var-list-items{display:flex;flex-direction:column;gap:4px}
-.var-list-row{display:block;margin-bottom:5px}
+.var-list-row{display:flex;gap:4px;align-items:center}
 .var-list-row input,.var-list-row select{padding:4px 6px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);font-size:11px;outline:none;transition:border-color var(--t)}
 .var-list-row input:focus,.var-list-row select:focus{border-color:var(--acc)}
 .var-ref-btn{position:relative}
@@ -350,7 +315,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .cx-s{height:1px;background:var(--border);margin:3px 0}
 .cx-sub{position:absolute;left:100%;top:-3px;display:none;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);min-width:160px;padding:3px 0;z-index:501;max-height:400px;overflow-y:auto}
 .cx-i:hover>.cx-sub{display:block}
-.cx-d{opacity:0.35;pointer-events:none;cursor:default}
 .cx-sc{padding:3px 12px;font-size:9px;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
 .cx-sn{display:flex;align-items:center;gap:7px;padding:4px 12px;font-size:11px;color:var(--txt2);cursor:pointer;transition:all var(--t)}
 .cx-sn:hover{background:var(--bg-hover);color:var(--txt)}
@@ -360,7 +324,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .toast{padding:6px 16px;border-radius:var(--r);background:var(--bg-raised);border:1px solid var(--border);box-shadow:var(--sh);font-size:11px;animation:ti .25s ease-out;display:flex;align-items:center;gap:6px}
 .toast.ok{border-color:rgba(74,222,128,.35)}.toast.ok i{color:var(--c-action)}
 .toast.err{border-color:rgba(248,113,113,.35)}.toast.err i{color:var(--red)}
-.toast.warn{border-color:rgba(234,179,8,.35)}.toast.warn i{color:#eab308}
 .toast.inf i{color:var(--acc)}
 @keyframes ti{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
@@ -388,83 +351,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 .run-i{animation:rp 1.4s infinite}
 
 .var-hint-popup{position:absolute;z-index:9000;background:var(--bg-raised);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);max-height:120px;overflow-y:auto;padding:2px 0;min-width:120px}
-
-/* 节点搜索浮动面板 */
-#search-float{position:fixed;z-index:200;background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:300px;min-width:240px;display:none;flex-direction:column;overflow:hidden}
-#search-float.visible{display:flex}
-.sf-h{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);cursor:move;user-select:none}
-.sf-h span{flex:1;font-size:11px;font-weight:600;color:var(--txt2)}
-.sf-h button{background:none;border:none;color:var(--txt3);cursor:pointer;padding:2px 6px;font-size:12px}
-.sf-h button:hover{color:var(--txt)}
-.sf-body{padding:6px 8px}
-.sf-input-row{display:flex;align-items:center;gap:4px}
-.sf-input-row input{flex:1;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);font-size:11px;color:var(--txt);outline:none}
-.sf-input-row input:focus{border-color:var(--acc)}
-.sf-nav-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt3);cursor:pointer;font-size:9px;transition:all var(--t);flex-shrink:0}
-.sf-nav-btn:hover{background:var(--bg-hover);color:var(--txt)}
-.sf-count{font-size:9px;color:var(--txt3);white-space:nowrap;min-width:30px;text-align:center;flex-shrink:0}
-.sf-clear-btn{display:flex;align-items:center;justify-content:center;width:22px;height:22px;background:transparent;border:none;border-radius:var(--rs);color:var(--txt3);cursor:pointer;font-size:10px;flex-shrink:0;transition:all var(--t)}
-.sf-clear-btn:hover{background:var(--bg-hover);color:var(--txt)}
-.nd-search-dropdown{display:none;margin-top:4px;max-height:240px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs)}
-.ns-dr-item{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;font-size:11px;color:var(--txt2);cursor:pointer;transition:all var(--t)}
-.ns-dr-item:hover{background:var(--bg-hover);color:var(--txt)}
-.ns-dr-item.ns-dr-active{background:var(--acc-dim);color:var(--txt)}
-.ns-dr-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.ns-dr-id{font-family:var(--fmo);font-size:9px;color:var(--txt3);margin-left:8px}
-.ns-dr-more{padding:5px 8px;font-size:10px;color:var(--txt3);text-align:center}
-
-/* 节点搜索高亮 */
-.nd.search-match{border-color:#f59e0b!important;box-shadow:0 0 0 2px rgba(245,158,11,.25),var(--sh-s)}
-.nd.search-active{border-color:#f59e0b!important;box-shadow:0 0 0 3px rgba(245,158,11,.4),0 0 12px rgba(245,158,11,.2);z-index:10}
-
-/* 断点标记 */
-.nd.has-breakpoint{border-left:4px solid #ef4444!important}
-.nd.has-breakpoint .nd-h{padding-left:3px}
-.nd.has-breakpoint .nd-h .bp-dot{display:inline-block}
-.bp-dot{display:none;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:4px;flex-shrink:0;box-shadow:0 0 4px rgba(239,68,68,.5)}
-
-/* 日志面板 */
-#log-float{position:fixed;z-index:200;background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:258px;min-width:258px;min-height:180px;height:250px;max-height:500px;display:none;flex-direction:column;overflow:hidden;resize:both}
-#log-float.visible{display:flex}
-#log-float .lf-h{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);cursor:move;user-select:none}
-#log-float .lf-h span{flex:1;font-size:11px;font-weight:600;color:var(--txt2)}
-#log-float .lf-h button{background:none;border:none;color:var(--txt3);cursor:pointer;padding:2px 6px;font-size:12px}
-#log-float .lf-h button:hover{color:var(--txt)}
-#log-toggle-btn{font-size:9px;color:var(--txt3);margin-left:4px;cursor:pointer;background:none;border:none;padding:0 2px;transition:color var(--t)}
-#log-toggle-btn:hover{color:var(--red)}
-#log-toggle-btn.active{color:#4ade80}
-.lf-toolbar{display:flex;align-items:center;gap:4px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:10px}
-.lf-filter{background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);padding:2px 5px;font-size:9px;width:80px}
-.lf-toolbar button{background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt2);cursor:pointer;padding:2px 6px;font-size:9px;transition:all var(--t)}
-.lf-toolbar button:hover{background:var(--bg-hover);color:var(--txt)}
-.lf-toolbar .lf-mode-btn.active{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
-.lf-content{flex:1;overflow-y:auto;padding:0}
-.lf-table{width:100%;border-collapse:collapse;font-size:10px}
-.lf-table th{position:sticky;top:0;background:var(--bg-surface);padding:4px 6px;text-align:left;font-weight:500;color:var(--txt3);border-bottom:1px solid var(--border);font-size:9px;z-index:1}
-.lf-table .lf-hdr{background:var(--bg-surface)}
-.lf-table td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.03);color:var(--txt2);font-family:var(--fmo);white-space:nowrap}
-.lf-table tr:hover td{background:var(--bg-hover)}
-.lf-table .lf-name{font-family:var(--fui);max-width:160px;overflow:hidden;text-overflow:ellipsis}
-.lf-table .lf-ok{color:#4ade80}
-.lf-table .lf-err{color:#f87171}
-.lf-table .lf-time{text-align:right;padding-right:8px}
-.lf-table .lf-th-time{padding-right:12px}
-.lf-footer{padding:4px 10px;border-top:1px solid var(--border);font-size:9px;color:var(--txt3);display:flex;align-items:center;gap:10px}
-
-#coord-overlay-float{position:fixed;z-index:200;background:var(--bg-raised);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);width:420px;min-width:280px;min-height:200px;height:340px;max-height:80vh;display:none;flex-direction:column;overflow:hidden;resize:both}
-#coord-overlay-float.visible{display:flex}
-#coord-overlay-float.minimized .cof-toolbar,#coord-overlay-float.minimized .cof-image-wrap,#coord-overlay-float.minimized .cof-footer{display:none}
-#coord-overlay-float.minimized{height:auto;min-height:0;resize:none}
-.cof-h{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);cursor:move;user-select:none}
-.cof-h span{font-size:11px;font-weight:600;color:var(--txt2)}
-.cof-h button{background:none;border:none;color:var(--txt3);cursor:pointer;padding:2px 6px;font-size:12px}
-.cof-h button:hover{color:var(--txt)}
-.cof-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border)}
-.cof-image-wrap{flex:1;overflow:hidden;position:relative;background:#000;display:flex;align-items:center;justify-content:center}
-.cof-image-wrap canvas{max-width:100%;max-height:100%;object-fit:contain}
-.cof-footer{padding:4px 10px;border-top:1px solid var(--border);font-size:9px;color:var(--txt3);display:flex;align-items:center;gap:8px}
-.cof-black-warn{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(239,68,68,.9);color:#fff;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;pointer-events:none;z-index:5;animation:cof-blink 1.2s infinite}
-@keyframes cof-blink{0%,100%{opacity:1}50%{opacity:.5}}
 </style>
 </head>
 <body>
@@ -475,11 +361,9 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
     <button class="t-btn ok" id="btn-run"><i class="fa-solid fa-play"></i>运行</button>
     <button class="t-btn" id="btn-stop"><i class="fa-solid fa-stop"></i>停止</button>
     <button class="t-btn" id="btn-pause"><i class="fa-solid fa-pause"></i>暂停</button>
-    <button class="t-btn" id="btn-simulate"><i class="fa-solid fa-wand-magic-sparkles"></i>模拟</button>
     <div class="t-sep"></div>
-    <button class="t-btn pri" id="btn-export"><i class="fa-solid fa-upload"></i>导出</button>
-    <button class="t-btn" id="btn-open"><i class="fa-solid fa-folder-open"></i>打开</button>
-    <button class="t-btn" id="btn-import-insert"><i class="fa-solid fa-file-import"></i>导入</button>
+    <button class="t-btn pri" id="btn-export"><i class="fa-solid fa-download"></i>导出</button>
+    <button class="t-btn" id="btn-import"><i class="fa-solid fa-upload"></i>导入</button>
     <button class="t-btn" id="btn-save"><i class="fa-solid fa-floppy-disk"></i>保存</button>
     <button class="t-btn" id="btn-new"><i class="fa-solid fa-file-circle-plus"></i>新建</button>
     <div class="t-sp"></div>
@@ -498,7 +382,7 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
     <div id="sb-l">
       <div class="sb-l-rsz" id="sb-l-rsz"></div>
       <div class="sb-l-toggle" id="sb-l-toggle" title="收起/展开节点栏"><i class="fa-solid fa-angles-left"></i></div>
-      <div class="sb-s"><div class="sb-s-w"><i class="fa-solid fa-search"></i><input placeholder="搜索节点..." id="ns-in"><button class="sb-s-clear" id="ns-clear" title="清空" style="display:none">×</button></div></div>
+      <div class="sb-s"><div class="sb-s-w"><i class="fa-solid fa-search"></i><input placeholder="搜索节点..." id="ns-in"></div></div>
       <div class="sb-n" id="toolbox-categories"></div>
       <div class="sb-tool">
         <div class="sb-tool-row">
@@ -509,109 +393,14 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
           <div class="sb-tool-item" id="btn-add-comment" title="拖拽添加注释" draggable="true"><i class="fa-solid fa-note-sticky" style="color:#fbbf24"></i><span>注释</span></div>
           <div class="sb-tool-item" id="btn-add-group" title="拖拽添加分组" draggable="true"><i class="fa-solid fa-object-group" style="color:#3b82f6"></i><span>分组</span></div>
           <div class="sb-tool-item" id="btn-line-delete" title="连线删除工具"><i class="fa-solid fa-eraser" style="color:#ef4444"></i><span>删除连线</span></div>
-          <div class="sb-tool-item" id="btn-log-panel" title="执行日志"><i class="fa-solid fa-list-check" style="color:#22d3ee"></i><span>执行日志</span></div>
-          <div class="sb-tool-item" id="btn-node-search" title="搜索节点 Ctrl+F"><i class="fa-solid fa-search" style="color:#f59e0b"></i><span>搜索节点</span></div>
-          <div class="sb-tool-item" id="btn-coord-overlay" title="截图坐标"><i class="fa-solid fa-crosshairs" style="color:#22d3ee"></i><span>截图坐标</span></div>
         </div>
         <div class="sb-tool-expand" id="plugin-expand" style="display:none">
-          <div class="plugin-header" style="display:flex;align-items:center;padding:2px 10px;gap:6px">
-            <span style="font-size:10px;color:var(--txt3);flex:1">可用插件</span>
-            <button class="prop-btn outline" id="btn-reload-plugins"
-                    style="padding:2px 8px;font-size:10px" title="重新加载插件">
-              <i class="fa-solid fa-rotate"></i>
-            </button>
-          </div>
+          <div class="sb-tool-item" id="btn-plugin-notify" title="拖拽添加消息提示" draggable="true"><i class="fa-solid fa-bell" style="color:#a855f7"></i><span>消息提示</span></div>
         </div>
       </div>
-      <div id="vars-p" class="collapsed">
-        <div class="vp-h" onclick="toggleVarPanel()"><i class="fa-solid fa-database" style="font-size:9px;margin-right:4px"></i>变量 <i class="fa-solid fa-chevron-up" id="vp-chevron" style="font-size:8px;margin-left:auto;transition:transform .2s"></i><button class="prop-btn outline" style="padding:1px 6px;font-size:9px;margin-left:4px" onclick="event.stopPropagation();undockVarPanel()" title="浮动显示"><i class="fa-solid fa-up-right-from-square"></i></button></div>
-        <div id="vl" style="overflow-y:auto;min-height:60px;max-height:300px;resize:vertical"><div style="padding:6px 10px;font-size:10px;color:var(--txt3)">暂无变量</div></div>
-      </div>
-    </div>
-
-    <div id="var-float">
-      <div class="vf-h" id="vf-header">
-        <i class="fa-solid fa-database" style="font-size:10px;color:var(--c-var)"></i>
-        <span>变量浏览器</span>
-        <button onclick="dockVarPanel()" title="放回侧栏"><i class="fa-solid fa-arrow-left"></i></button>
-        <button onclick="toggleVarPanel()" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div id="vl-f"><div style="padding:6px 10px;font-size:10px;color:var(--txt3)">暂无变量</div></div>
-    </div>
-
-    <div id="search-float">
-      <div class="sf-h" id="sf-header">
-        <i class="fa-solid fa-search" style="font-size:10px;color:#f59e0b"></i>
-        <span>搜索节点</span>
-        <button id="sf-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div class="sf-body">
-        <div class="sf-input-row">
-          <input id="nd-search-in" placeholder="输入节点名称/类型..." autocomplete="off">
-          <button class="sf-nav-btn" id="nd-search-prev" title="上一个(Shift+Enter)" style="display:none"><i class="fa-solid fa-chevron-up"></i></button>
-          <button class="sf-nav-btn" id="nd-search-next" title="下一个(Enter)" style="display:none"><i class="fa-solid fa-chevron-down"></i></button>
-          <span class="sf-count" id="nd-search-count"></span>
-          <button class="sf-clear-btn" id="nd-search-clear" title="清空" style="display:none"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="nd-search-dropdown" id="nd-search-dropdown"></div>
-      </div>
-    </div>
-
-    <div id="log-float">
-      <div class="lf-h" id="lf-header">
-        <i class="fa-solid fa-list-check" style="font-size:10px;color:var(--c-action)"></i>
-        <span>执行日志</span>
-        <button id="lf-dock" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-        <button id="lf-close" title="关闭面板"><i class="fa-solid fa-angle-down"></i></button>
-      </div>
-      <div class="lf-toolbar">
-      <select class="lf-filter" id="lf-status-filter">
-        <option value="">全部</option>
-        <option value="ok">成功</option>
-        <option value="error">失败</option>
-      </select>
-      <button id="lf-clear" title="清空日志">清空</button>
-      <button id="lf-mode-off" class="lf-mode-btn active" title="关闭日志">OFF</button>
-      <button id="lf-mode-on" class="lf-mode-btn" title="开启日志">ON</button>
-      <button id="lf-continuous-btn" class="lf-mode-btn" style="margin-left:auto">持续OFF</button>
-    </div>
-      <div class="lf-content" id="lf-content">
-        <table class="lf-table">
-          <tbody id="lf-tbody"></tbody>
-        </table>
-      </div>
-      <div class="lf-footer"><span id="lf-summary">未运行</span></div>
-    </div>
-
-    <div id="coord-overlay-float">
-      <div class="cof-h" id="cof-header">
-        <i class="fa-solid fa-crosshairs" style="font-size:10px;color:#22d3ee"></i>
-        <span>截图坐标</span>
-        <div style="flex:1"></div>
-        <button id="cof-minimize" title="最小化"><i class="fa-solid fa-angle-down"></i></button>
-        <button id="cof-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-      <div class="cof-toolbar">
-        <select id="cof-capture-method" style="width:80px;font-size:10px;padding:2px 4px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);outline:none">
-          <option value="mss">mss</option>
-          <option value="bitblt">BitBlt</option>
-          <option value="dxgi">DXGI</option>
-        </select>
-        <span id="cof-status-dot" style="width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0" title="截图源状态"></span>
-        <span id="cof-status-text" style="font-size:9px;color:var(--txt3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">就绪</span>
-        <select id="cof-window-select" style="width:120px;font-size:10px;padding:2px 4px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt);outline:none">
-          <option value="-1">全部显示器</option>
-        </select>
-        <button id="cof-refresh-btn" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt2);cursor:pointer;padding:2px 6px;font-size:9px;transition:all var(--t)" title="立即刷新"><i class="fa-solid fa-rotate"></i></button>
-        <button id="cof-pause-btn" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);color:var(--txt2);cursor:pointer;padding:2px 6px;font-size:9px;transition:all var(--t)" title="暂停/继续"><i class="fa-solid fa-pause"></i></button>
-      </div>
-      <div class="cof-image-wrap" id="cof-image-wrap">
-        <canvas id="cof-canvas"></canvas>
-      </div>
-      <div class="cof-footer">
-        <span id="cof-info" style="font-size:9px;color:var(--txt3)">-</span>
-        <span style="flex:1"></span>
-        <span id="cof-overlay-count" style="font-size:9px;color:var(--txt3)">0个坐标</span>
+      <div id="vars-p">
+        <div class="vp-h"><i class="fa-solid fa-database" style="font-size:9px;margin-right:4px"></i>变量</div>
+        <div id="vl"><div style="padding:6px 10px;font-size:10px;color:var(--txt3)">暂无变量</div></div>
       </div>
     </div>
 
@@ -654,7 +443,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
 <div id="ctx"></div>
 <div id="toast-c"></div>
 <input type="file" id="file-input-import" accept=".json" style="display:none">
-<input type="file" id="file-input-insert" accept=".json" style="display:none">
 
 
 
@@ -680,25 +468,6 @@ input[type=checkbox]{accent-color:var(--acc);width:13px;height:13px;cursor:point
     }
 })();
 </script>
-<script>
-(function() {
-  function applyTheme(isLight) {
-    document.documentElement.classList.toggle('theme-light', !!isLight);
-  }
-  try { applyTheme(localStorage.getItem('ui_theme') === 'light'); } catch(e) {}
-  try {
-    if (window.parent && window.parent.localStorage) {
-      applyTheme(window.parent.localStorage.getItem('ui_theme') === 'light');
-    }
-  } catch(e) {}
-  window.addEventListener('message', function(event) {
-    var data = event && event.data;
-    if (!data || data.source !== 'macro-forge-host') return;
-    if (data.type !== 'theme-change') return;
-    applyTheme(data.theme === 'light');
-  });
-})();
-</script>
-<script type="module" src="modules/auto/app/editor-app.js"></script>
+<script type="module" src="modules/auto/editor-app.js"></script>
 </body>
 </html>

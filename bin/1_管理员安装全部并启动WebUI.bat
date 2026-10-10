@@ -57,15 +57,16 @@ for %%C in (
     "python3"
 ) do (
     if not defined PYTHON_CMD (
-        for /f "tokens=1,*" %%A in ("%%~C") do (
+        for /f "tokens=1,*" %%A in (%%C) do (
             where %%A >nul 2>&1
             if !errorlevel! equ 0 (
-                for /f "delims=" %%V in ('%%~C --version 2^>^&1') do (
+                :: 验证版本号 ≥ 3
+                for /f "delims=" %%V in ('%%C --version 2^>^&1') do (
                     set "VER_LINE=%%V"
                 )
                 echo !VER_LINE! | findstr /i "Python 3" >nul 2>&1
                 if !errorlevel! equ 0 (
-                    set "PYTHON_CMD=%%~C"
+                    set "PYTHON_CMD=%%C"
                     echo [检测到] !VER_LINE!  命令: !PYTHON_CMD!
                 )
             )
@@ -121,27 +122,6 @@ if not defined PYTHON_CMD (
                 if !errorlevel! equ 0 (
                     set "PYTHON_CMD=%%~P"
                     echo [检测到] !VER_LINE!  路径: !PYTHON_CMD!
-                )
-            )
-        )
-    )
-)
-
-:: ---- 策略 B.5：扫描所有用户目录（管理员模式下 %LOCALAPPDATA% 会指向系统账户）----
-if not defined PYTHON_CMD (
-    echo [信息] 扫描所有用户目录中的 Python 安装...
-    for /d %%U in ("%SystemDrive%\Users\*") do (
-        for %%V in (Python314 Python313 Python312 Python311 Python310 Python39 Python38) do (
-            if not defined PYTHON_CMD (
-                if exist "%%U\AppData\Local\Programs\Python\%%V\python.exe" (
-                    for /f "delims=" %%W in ('"%%U\AppData\Local\Programs\Python\%%V\python.exe" --version 2^>^&1') do (
-                        set "VER_LINE=%%W"
-                    )
-                    echo !VER_LINE! | findstr /i "Python 3" >nul 2>&1
-                    if !errorlevel! equ 0 (
-                        set "PYTHON_CMD=%%U\AppData\Local\Programs\Python\%%V\python.exe"
-                        echo [检测到] !VER_LINE!  路径: !PYTHON_CMD!
-                    )
                 )
             )
         )
@@ -217,7 +197,8 @@ echo.
 echo [2/3] 安装 Interception 驱动...
 "%INS_EXE%" /install
 if %errorlevel% neq 0 (
-    echo [警告] 驱动安装返回非零状态（可能已安装），继续启动 WebUI...
+    echo [错误] 驱动安装失败，请确认管理员权限与系统兼容性。
+    pause & exit /b 1
 )
 
 :: ───────────────────────────────────────────────────────────

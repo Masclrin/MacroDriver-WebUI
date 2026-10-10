@@ -2,12 +2,6 @@ from automation.engine import _resolve_value, _execute_flow, ExecContext
 from automation.compiler import ExecNode
 
 
-def _extract_var_name(val):
-    if isinstance(val, str) and val.startswith("${") and val.endswith("}"):
-        return val[2:-1]
-    return val
-
-
 def _read_data_input(node, ctx, port_name, fallback=None):
     data_sources = node.get_data_inputs(port_name)
     if data_sources:
@@ -15,11 +9,6 @@ def _read_data_input(node, ctx, port_name, fallback=None):
         key = f"{src['source_node_id']}.{src['source_port']}"
         return ctx.check_results.get(key, fallback)
     return fallback
-
-
-def _log_div_zero(ctx, node, a, b):
-    ctx.log_error(f"除零错误: {a} / {b} (除数b=0) 位于节点 {node.type}", node_id=node.id, error_type="math")
-    return 0
 
 
 def _handle_var_set(node: ExecNode, ctx: ExecContext):
@@ -41,10 +30,7 @@ def _handle_var_set(node: ExecNode, ctx: ExecContext):
             if not name:
                 continue
             raw_value = var_item.get("value", "")
-            if isinstance(raw_value, str):
-                value = _resolve_value(raw_value, ctx)
-            else:
-                value = raw_value
+            value = _resolve_value(str(raw_value), ctx)
             var_type = var_item.get("type", "string")
             if var_type == "number":
                 try:
@@ -52,13 +38,8 @@ def _handle_var_set(node: ExecNode, ctx: ExecContext):
                 except (ValueError, TypeError):
                     value = 0.0
             elif var_type == "boolean":
-                if isinstance(value, bool):
-                    pass
-                elif isinstance(value, str):
-                    value = value.lower() not in ("", "0", "false", "no", "off", "none", "null")
-                else:
-                    value = bool(value)
-            ctx.safe_set_variable(name, value)
+                value = bool(value)
+            ctx.variables[name] = value
     else:
         name = node.params.get("name", "")
         value = _resolve_value(node.params.get("value", ""), ctx)
@@ -69,20 +50,15 @@ def _handle_var_set(node: ExecNode, ctx: ExecContext):
             except (ValueError, TypeError):
                 value = 0.0
         elif var_type == "boolean":
-            if isinstance(value, bool):
-                pass
-            elif isinstance(value, str):
-                value = value.lower() not in ("", "0", "false", "no", "off", "none", "null")
-            else:
-                value = bool(value)
+            value = bool(value)
         if name:
-            ctx.safe_set_variable(name, value)
+            ctx.variables[name] = value
     _execute_flow(node.id, "next", ctx)
 
 
 def _handle_var_math(node: ExecNode, ctx: ExecContext):
-    op = node.params.get("op", "+")
-    _MATH_OP_ALIASES = {"add": "+", "sub": "-", "mul": "*", "div": "/", "mod": "%"}
+    op = node.params.get("op", "add")
+    _MATH_OP_ALIASES = {"+": "add", "-": "sub", "*": "mul", "/": "div", "%": "mod"}
     op = _MATH_OP_ALIASES.get(op, op)
 
     a_input = _read_data_input(node, ctx, "A")
@@ -92,10 +68,8 @@ def _handle_var_math(node: ExecNode, ctx: ExecContext):
     store_var = node.params.get("store_var", "")
 
     ops = {
-        "+": lambda: a + b, "-": lambda: a - b, "*": lambda: a * b,
-        "/": lambda: a / b if b != 0 else _log_div_zero(ctx, node, a, b),
-        "%": lambda: a % b if b != 0 else _log_div_zero(ctx, node, a, b),
-        "^": lambda: a ** b,
+        "add": lambda: a + b, "sub": lambda: a - b, "mul": lambda: a * b,
+        "div": lambda: a / b if b != 0 else 0, "mod": lambda: a % b if b != 0 else 0,
         "min": lambda: min(a, b), "max": lambda: max(a, b),
         "abs": lambda: abs(a), "round": lambda: round(a, int(b)),
     }
@@ -103,7 +77,7 @@ def _handle_var_math(node: ExecNode, ctx: ExecContext):
 
     ctx.check_results[f"{node.id}.result"] = result
     if store_var:
-        ctx.safe_set_variable(_extract_var_name(store_var), result)
+        ctx.variables[store_var] = result
     _execute_flow(node.id, "next", ctx)
 
 
@@ -139,62 +113,47 @@ def _handle_var_string(node: ExecNode, ctx: ExecContext):
 
     str_input = _read_data_input(node, ctx, "str")
     a = str(str_input if str_input is not None else _resolve_value(node.params.get("a", ""), ctx))
+    b = str(_resolve_value(node.params.get("b", ""), ctx))
     store_var = node.params.get("store_var", "")
 
-    concat_str = str(_resolve_value(node.params.get("concat_str", node.params.get("b", "")), ctx))
-    search_str = str(_resolve_value(node.params.get("search_str", node.params.get("b", "")), ctx))
-    replace_str = str(_resolve_value(node.params.get("replace_str", node.params.get("c", "")), ctx))
-    start_pos = int(_resolve_value(node.params.get("start_pos", 0), ctx))
-    length = int(_resolve_value(node.params.get("length", 0), ctx))
-    delimiter = str(_resolve_value(node.params.get("delimiter", node.params.get("b", ",")), ctx))
-    index = int(_resolve_value(node.params.get("index", node.params.get("c", 0)), ctx))
-    regex_pattern = str(_resolve_value(node.params.get("regex_pattern", node.params.get("b", "")), ctx))
-
     if op == "concat":
-        result = a + concat_str
-    elif op == "substring":
+        result = a + b
+    elif op == "substr":
         try:
-            end = start_pos + length if length > 0 else len(a)
-            result = a[start_pos:end]
+            parts = b.split(",")
+            start = int(parts[0]) if len(parts) > 0 else 0
+            length = int(parts[1]) if len(parts) > 1 else len(a)
+            result = a[start:start + length]
         except (ValueError, IndexError):
             result = a
     elif op == "replace":
-        result = a.replace(search_str, replace_str)
-    elif op == "split_index":
-        parts = a.split(delimiter) if delimiter else [a]
-        try:
-            result = parts[index] if 0 <= index < len(parts) else (parts[0] if parts else "")
-        except (ValueError, IndexError):
-            result = a
+        result = a.replace(b, "")
+    elif op == "split":
+        parts = a.split(b) if b else [a]
+        result = parts[0] if parts else ""
     elif op == "regex_extract":
         import re
-        match = re.search(regex_pattern, a)
+        match = re.search(b, a)
         result = match.group(0) if match else ""
-    elif op == "upper":
-        result = a.upper()
-    elif op == "lower":
-        result = a.lower()
-    elif op == "trim":
-        result = a.strip()
     else:
         result = a
 
     if store_var:
-        ctx.safe_set_variable(_extract_var_name(store_var), result)
+        ctx.variables[store_var] = result
     ctx.check_results[f"{node.id}.result"] = result
     _execute_flow(node.id, "next", ctx)
 
 
 def _handle_var_convert(node: ExecNode, ctx: ExecContext):
     to_type = node.params.get("to_type", "number")
-    input_var = _resolve_value(node.params.get("input_var", ""), ctx)
+    input_var = node.params.get("input_var", "")
     store_var = node.params.get("store_var", "")
 
     val_input = _read_data_input(node, ctx, "val")
     if val_input is not None:
         value = val_input
     elif input_var:
-        value = input_var
+        value = ctx.variables.get(input_var, "")
     else:
         value = ""
 
@@ -202,65 +161,17 @@ def _handle_var_convert(node: ExecNode, ctx: ExecContext):
         try:
             result = float(value)
         except (ValueError, TypeError):
-            try:
-                result = float(str(value).strip())
-            except (ValueError, TypeError):
-                result = 0.0
+            result = 0.0
     elif to_type == "string":
         result = str(value)
     elif to_type == "boolean":
-        if isinstance(value, bool):
-            result = value
-        elif isinstance(value, (int, float)):
-            result = value != 0
-        elif isinstance(value, str):
-            result = value.lower() not in ("", "0", "false", "no", "off", "none", "null")
-        else:
-            result = bool(value)
+        result = bool(value)
     else:
         result = value
 
     if store_var:
-        ctx.safe_set_variable(_extract_var_name(store_var), result)
+        ctx.variables[store_var] = result
     ctx.check_results[f"{node.id}.result"] = result
-    _execute_flow(node.id, "next", ctx)
-
-
-def _handle_var_random(node: ExecNode, ctx: ExecContext):
-    import random
-    import string as _string_lib
-
-    params = node.params
-    mode = params.get("mode", "number")
-    store_var = params.get("store_var", "")
-
-    if mode == "number":
-        min_val = float(_resolve_value(params.get("min_val", 1), ctx))
-        max_val = float(_resolve_value(params.get("max_val", 100), ctx))
-        int_only = params.get("int_only", True)
-        if int_only:
-            result = random.randint(int(min_val), int(max_val))
-        else:
-            result = random.uniform(min_val, max_val)
-    else:
-        charset = params.get("charset", "alpha")
-        custom_chars = _resolve_value(params.get("custom_chars", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), ctx)
-        length = int(_resolve_value(params.get("length", 8), ctx))
-
-        charset_map = {
-            "alpha": _string_lib.ascii_letters,
-            "alphanumeric": _string_lib.ascii_letters + _string_lib.digits,
-            "numeric": _string_lib.digits,
-        }
-        if charset == "custom" and custom_chars:
-            chars = custom_chars
-        else:
-            chars = charset_map.get(charset, _string_lib.ascii_letters)
-        result = "".join(random.choices(chars, k=max(1, length)))
-
-    ctx.check_results[f"{node.id}.result"] = result
-    if store_var:
-        ctx.safe_set_variable(_extract_var_name(store_var), result)
     _execute_flow(node.id, "next", ctx)
 
 
@@ -270,4 +181,3 @@ def register(handlers: dict):
     handlers["_handle_var_compare"] = _handle_var_compare
     handlers["_handle_var_string"] = _handle_var_string
     handlers["_handle_var_convert"] = _handle_var_convert
-    handlers["_handle_var_random"] = _handle_var_random

@@ -61,16 +61,3 @@ export async function clearConsole() {
   q('#consoleOutput').textContent = '';
   showToast('控制台已清空');
 }
-
-let _popoutWindow = null;
-
-export async function popoutConsole() {
-  try {
-    const result = await apiCall('open_console_popout');
-    if (!result.ok) {
-      showToast(result.error || '打开弹出窗口失败');
-    }
-  } catch (err) {
-    showToast('打开弹出窗口失败: ' + (err.message || err));
-  }
-}

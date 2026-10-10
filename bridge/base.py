@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from core.paths import BASE_DIR, RESOURCE_DIR
+from core.paths import BASE_DIR
 from core.console_service import RingConsole, TeeStream
 from core.response import ok, fail
 
@@ -14,7 +14,7 @@ from bridge.metadata import PARAM_DOCS, PARAM_SCHEMA, SECTION_META
 
 
 def _load_module(alias: str, file_name: str):
-    file_path = RESOURCE_DIR / file_name
+    file_path = BASE_DIR / file_name
     if not file_path.exists():
         raise FileNotFoundError(f"模块文件不存在: {file_name}")
 
@@ -36,17 +36,13 @@ class MacroBridgeBase:
 
     def __init__(self):
         self.ALLOW_MULTI_MACRO_BIND_PER_KEY = False
-        self.UI_THEME_LIGHT = False
 
         # 自动化编辑器热键设置
         self.HOTKEY_ENABLED = True
-        self.HOTKEY_RUN = "F6"
-        self.HOTKEY_PAUSE = "F7"
-        self.HOTKEY_STOP = "F8"
+        self.HOTKEY_RUN = "F5"
+        self.HOTKEY_PAUSE = "F6"
+        self.HOTKEY_STOP = "F7"
         self.HOTKEY_FULLSCREEN = "F11"
-
-        self.NODE_RETRY_COUNT = 3
-        self.NODE_RETRY_DELAY_MS = 500
 
         self.console = RingConsole(max_lines=6000)
         self._stdout = sys.stdout
@@ -119,38 +115,7 @@ class MacroBridgeBase:
         return fail(message, detail)
 
     def health(self):
-        import platform
-        from core.paths import BASE_DIR
-        ver = "3.2.0"
-        info = {
-            "version": ver,
-            "now": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-            "arch": platform.machine(),
-            "cwd": str(BASE_DIR),
-        }
-        try:
-            import webview
-            info["pywebview"] = getattr(webview, "__version__", "unknown")
-        except Exception:
-            pass
-        try:
-            import cv2
-            info["opencv"] = cv2.__version__
-        except Exception:
-            pass
-        try:
-            import numpy
-            info["numpy"] = numpy.__version__
-        except Exception:
-            pass
-        try:
-            import onnxruntime
-            info["onnxruntime"] = onnxruntime.__version__
-        except Exception:
-            pass
-        return self._ok(**info)
+        return self._ok(version="1.0.0", now=time.strftime("%Y-%m-%d %H:%M:%S"))
 
     def get_dashboard_snapshot(self):
         if self.executor is None:
@@ -181,40 +146,9 @@ class MacroBridgeBase:
     def clear_console(self):
         return self.console.clear()
 
-    def open_console_popout(self):
-        try:
-            import webview
-            from core.paths import RESOURCE_DIR
-            html_path = (RESOURCE_DIR / "webui" / "console_popout.html").resolve()
-            if not html_path.exists():
-                return self._fail("弹出窗口页面不存在")
-            url = html_path.as_uri()
-            if getattr(self, "UI_THEME_LIGHT", False):
-                url = f"{url}?theme=light"
-            popout_window = webview.create_window(
-                title="控制台日志 - 宏驱动引擎",
-                url=url,
-                js_api=self,
-                width=720,
-                height=480,
-                min_size=(400, 300),
-                text_select=True,
-            )
-            return self._ok(opened=True)
-        except Exception as e:
-            return self._fail(f"打开弹出窗口失败: {e}")
-
     def shutdown(self):
         try:
             self.stop_all_macros()
-        except Exception:
-            pass
-        # 归还进程优先级：此前 boost_process_priority() 把整个进程抬到
-        # HIGH_PRIORITY_CLASS 且从不恢复，退出后残留影响会在下次启动前一直存在。
-        try:
-            from engine import precision as _pr
-            _pr.restore_process_priority()
-            _pr.set_system_timer_resolution_enabled(False)
         except Exception:
             pass
         try:
@@ -223,15 +157,6 @@ class MacroBridgeBase:
             pass
         try:
             self.stop_recorder_service()
-        except Exception:
-            pass
-        try:
-            self._stop_editor_hotkey_listener()
-        except Exception:
-            pass
-        try:
-            if self._ed_rec_active:
-                self.editor_record_stop()
         except Exception:
             pass
 
@@ -276,35 +201,12 @@ class MacroBridgeBase:
 
     def _save_param_config_to_disk(self, values):
         import json
-        import os
-        import tempfile
         data = {
             "version": 1,
             "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "values": values,
         }
-        payload = json.dumps(data, ensure_ascii=False, indent=2)
-        # 原子写入：先写同目录临时文件再 os.replace()。
-        # 原实现用 write_text 直接 truncate+写，写入途中崩溃会留下半截 JSON，
-        # 下次启动 _load_param_config_from_disk 失败 → 被默认值整体覆盖，用户配置永久丢失。
-        path = self.param_config_path
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                dir=str(path.parent), prefix=path.stem + ".", suffix=".tmp"
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-                    f.write(payload)
-                os.replace(tmp_name, path)
-            except Exception:
-                try:
-                    os.unlink(tmp_name)
-                except Exception:
-                    pass
-                raise
-        except Exception:
-            path.write_text(payload, encoding="utf-8")
+        self.param_config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _load_param_config_from_disk(self) -> bool:
         if not self.param_config_path.exists():
@@ -318,17 +220,7 @@ class MacroBridgeBase:
             self.console.push(f"参数已从配置文件加载: {self.param_config_path.name}", "stdout")
             return True
         except Exception as exc:
-            # 原来是静默返回 False，随后调用方用默认值直接覆写原文件 —— 用户配置永久丢失。
-            # 改为先把损坏文件隔离成备份，再让上层回退默认值。
-            self.console.push(f"参数配置加载失败: {exc}", "stderr")
-            try:
-                backup = self.param_config_path.with_name(
-                    self.param_config_path.name + ".corrupt-" + time.strftime("%Y%m%d-%H%M%S") + ".bak"
-                )
-                self.param_config_path.replace(backup)
-                self.console.push(f"已隔离损坏的参数配置 -> {backup.name}", "stderr")
-            except Exception:
-                pass
+            self.console.push(f"参数配置加载失败，已忽略: {exc}", "stderr")
             return False
 
     def _extract_param_values_from_obj(self, obj):

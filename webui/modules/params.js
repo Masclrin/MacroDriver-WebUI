@@ -7,7 +7,6 @@ import {
   RECOMMENDED_RANDOM_DELAY_RULES,
   HIDE_DEFAULT_FIELD_IDS,
 } from './core/constants.js';
-import { applyTheme } from './theme.js';
 
 export async function renderGlobalParams() {
   const container = q('#paramsContainer');
@@ -133,15 +132,11 @@ export async function renderGlobalParams() {
         } else if (Array.isArray(field.options) && field.options.length) {
           input = document.createElement('select');
           input.className = 'param-input';
-          const displayNames = field.display_names || {};
           field.options.forEach((opt) => {
             const op = document.createElement('option');
-            const raw = String(opt);
-            const cn = displayNames[raw];
-            op.value = raw;
-            // 有中文名则显示 "中文 (原值)"，无则显示原值；避免用户面对 latency_first 之类英文串
-            op.textContent = cn ? `${cn} (${raw})` : raw;
-            op.selected = String(field.value) === raw;
+            op.value = String(opt);
+            op.textContent = String(opt);
+            op.selected = String(field.value) === String(opt);
             input.appendChild(op);
           });
           head.appendChild(input);
@@ -170,9 +165,6 @@ export async function renderGlobalParams() {
         input.dataset.currentValue = JSON.stringify(field.value);
         input.addEventListener('change', () => applyParamDependencies());
         input.addEventListener('input', () => applyParamDependencies());
-        if (field.field_id === 'webui.UI_THEME_LIGHT') {
-          input.addEventListener('change', () => applyTheme(input.checked));
-        }
 
         item.appendChild(head);
 
@@ -243,8 +235,8 @@ async function saveGlobalParams() {
 
     if (text.startsWith('[') || text.startsWith('{')) {
       const parsed = JSON.parse(text);
-      if (type === 'json' && (typeof parsed !== 'object' || parsed === null)) {
-        throw new Error('JSON 参数必须是对象或数组');
+      if (type === 'json' && (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))) {
+        throw new Error('JSON 参数必须是对象');
       }
       if ((type === 'list' || type === 'set') && !Array.isArray(parsed)) {
         throw new Error('列表参数必须是 JSON 数组');
@@ -253,7 +245,7 @@ async function saveGlobalParams() {
     }
 
     if (type === 'json') {
-      throw new Error('JSON 参数请使用对象或数组格式，如 {"key": "value"} 或 ["a", "b"]');
+      throw new Error('JSON 参数请使用对象格式，如 {"key": "value"}');
     }
 
     return text.split(',').map((s) => s.trim()).filter(Boolean);
@@ -301,12 +293,6 @@ async function saveGlobalParams() {
   await renderGlobalParams();
   showToast('参数已保存并写入配置');
 
-  try {
-    if (payload.automation_editor) {
-      await apiCall('sync_editor_hotkeys');
-    }
-  } catch (e) {}
-
   // 同步自动化编辑器热键
   try {
     if (payload.automation_editor) {
@@ -320,12 +306,8 @@ async function saveGlobalParams() {
         var existing = JSON.parse(localStorage.getItem('editor_hotkeys') || '{}');
         Object.assign(existing, cfg);
         localStorage.setItem('editor_hotkeys', JSON.stringify(existing));
-        var frame = document.getElementById('automationFrame');
-        if (frame && frame.contentWindow) {
-          frame.contentWindow.postMessage({
-            source: 'macro-forge-host',
-            type: 'reload-hotkeys'
-          }, '*');
+        if (window._autoEditor && window._autoEditor._loadEditorHotkeys) {
+          window._autoEditor._loadEditorHotkeys();
         }
       }
     }
@@ -358,49 +340,12 @@ async function resetGlobalParamsToDefault() {
   showToast('默认参数已恢复');
 }
 
-async function checkHotkeyConflicts() {
-  const box = q('#hotkeyConflictResult');
-  if (!box) return;
-  try {
-    const res = await apiCall('get_hotkey_conflicts');
-    const conflicts = Array.isArray(res.conflicts) ? res.conflicts : [];
-    const total = res.hotkeys ? Object.keys(res.hotkeys).length : 0;
-    box.hidden = false;
-    if (!conflicts.length) {
-      box.className = 'hotkey-conflict-result ok';
-      box.innerHTML = `<div>热键检测完成：已绑定 ${total} 个按键，<strong>未发现冲突</strong>。</div>`;
-      return;
-    }
-    box.className = 'hotkey-conflict-result warn';
-    const items = conflicts.map((c) => {
-      const users = c.users
-        .map((u) => `${escapeHtml(u.label)}<span class="hk-key">(${escapeHtml(u.value)})</span>`)
-        .join('、');
-      return `<li><span class="hk-badge">${escapeHtml(String(c.key).toUpperCase())}</span> 被 ${c.users.length} 处同时占用：${users}</li>`;
-    }).join('');
-    box.innerHTML =
-      `<div><strong>发现 ${conflicts.length} 处热键冲突</strong>：同一按键被多处占用时，只有最先注册的功能生效，其余会被静默忽略。建议为上表冲突项分别改为不同按键。</div>`
-      + `<ul class="hk-list">${items}</ul>`;
-  } catch (err) {
-    box.hidden = false;
-    box.className = 'hotkey-conflict-result warn';
-    box.textContent = `热键检测失败: ${err.message}`;
-  }
-}
-
 export function bindParamsActions() {
   q('#btnReloadParams').addEventListener('click', () => {
     renderGlobalParams()
       .then(() => showToast('参数已刷新'))
       .catch((err) => showToast(err.message));
   });
-
-  const conflictBtn = q('#btnCheckHotkeyConflicts');
-  if (conflictBtn) {
-    conflictBtn.addEventListener('click', () => {
-      checkHotkeyConflicts().catch((err) => showToast(err.message));
-    });
-  }
 
   q('#btnSaveParamsTop').addEventListener('click', () => {
     saveGlobalParams().catch((err) => showToast(err.message));

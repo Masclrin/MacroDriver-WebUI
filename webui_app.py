@@ -4,23 +4,6 @@ from __future__ import annotations
 import ctypes
 import sys
 
-APP_VERSION = "3.3.0"
-APP_NAME = "MacroDriver WebUI"
-
-
-def _print_banner():
-    print()
-    print("=" * 56)
-    print(f"  {APP_NAME} v{APP_VERSION}")
-    print("  高精度宏驱动控制台")
-    print("=" * 56)
-    print(f"  Python:  {sys.version.split()[0]}")
-    print(f"  平台:    {sys.platform}")
-    print(f"  工作目录: {sys.path[0] if sys.path else '.'}")
-    print("=" * 56)
-    print()
-
-
 def _init_per_monitor_dpi():
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -48,9 +31,6 @@ from bridge.recorder_api import RecorderApiMixin
 from bridge.macro_binding_api import MacroBindingApiMixin
 from bridge.listener_api import ListenerApiMixin
 from bridge.macro_simplify_api import MacroSimplifyApiMixin
-from bridge.extra_api import ExtraApiMixin
-from bridge.editor_record_api import EditorRecordApiMixin
-from bridge.converter_api import ConverterApiMixin
 
 try:
     from bridge.automation_api import AutomationApiMixin
@@ -58,14 +38,6 @@ try:
 except ImportError:
     _has_automation = False
     class AutomationApiMixin:
-        pass
-
-try:
-    from bridge.plugin_api import PluginApiMixin
-    _has_plugins = True
-except ImportError:
-    _has_plugins = False
-    class PluginApiMixin:
         pass
 
 try:
@@ -88,26 +60,17 @@ class MacroBridge(
     MacroBindingApiMixin,
     ListenerApiMixin,
     MacroSimplifyApiMixin,
-    ExtraApiMixin,
     AutomationApiMixin,
-    PluginApiMixin,
-    EditorRecordApiMixin,
-    ConverterApiMixin,
 ):
     webview = webview
 
     def __init__(self):
         super().__init__()
-        EditorRecordApiMixin.__init__(self)
-        if _has_plugins:
-            self._init_plugins()
         if _has_automation:
             self._init_automation()
 
 
 def run_ui() -> None:
-    _print_banner()
-
     if not MACRO_ROOT.exists():
         MACRO_ROOT.mkdir(parents=True, exist_ok=True)
 

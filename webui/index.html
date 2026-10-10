@@ -5,89 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>宏驱动控制台</title>
   <link rel="stylesheet" href="styles.css" />
-  <script>
-    try {
-      if (localStorage.getItem('ui_theme') === 'light') {
-        document.documentElement.classList.add('theme-light');
-      }
-    } catch (e) {}
-    // 诊断开关：?p_diag=1 时把未捕获错误写进 title，便于无头浏览器排查
-    if (/[?&]p_diag=1/.test(location.search)) {
-      window.addEventListener('error', function (e) {
-        document.title = 'ERR: ' + (e && (e.message || (e.error && e.error.message) || e.type));
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        document.title = 'REJ: ' + (e && e.reason && (e.reason.message || e.reason));
-      });
-    }
-  </script>
 </head>
 <body>
   <div class="bg-noise"></div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <button class="brand-mark" id="brandMark" type="button" title="折叠/展开侧栏">M</button>
-        <div class="brand-text">
+        <div class="brand-mark">M</div>
+        <div>
           <h1>Macro Forge</h1>
           <p>高精度宏控制台</p>
         </div>
       </div>
 
       <nav class="tab-nav" id="tabNav">
-        <button class="tab-btn active" data-tab="macro" title="宏执行绑定">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
-          <span class="tab-label">宏执行绑定</span>
-        </button>
-        <button class="tab-btn" data-tab="editor" title="宏编辑保存">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          <span class="tab-label">宏编辑保存</span>
-        </button>
-        <button class="tab-btn" data-tab="record" title="录制与化简">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/></svg>
-          <span class="tab-label">录制与化简</span>
-        </button>
-        <button class="tab-btn" data-tab="converter" title="宏格式转换">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 5l3 3-3 3"/><path d="M20 16H7"/><path d="M10 13l-3 3 3 3"/></svg>
-          <span class="tab-label">宏格式转换</span>
-        </button>
-        <button class="tab-btn" data-tab="params" title="全局参数">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--bg-raised,rgba(0,0,0,.5))"/><circle cx="15" cy="12" r="2" fill="var(--bg-raised,rgba(0,0,0,.5))"/><circle cx="7" cy="18" r="2" fill="var(--bg-raised,rgba(0,0,0,.5))"/></svg>
-          <span class="tab-label">全局参数</span>
-        </button>
-        <button class="tab-btn" data-tab="console" title="全局控制台">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3"/><path d="M13 15h4"/></svg>
-          <span class="tab-label">全局控制台</span>
-        </button>
-        <button class="tab-btn" data-tab="automation" title="自动化编辑器">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-2h12v2"/></svg>
-          <span class="tab-label">自动化编辑器</span>
-        </button>
-        <button class="tab-btn" data-tab="extra" title="额外功能">
-          <svg class="tab-ico" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="6" cy="6" r="1.4"/><circle cx="12" cy="6" r="1.4"/><circle cx="18" cy="6" r="1.4"/><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/><circle cx="6" cy="18" r="1.4"/><circle cx="12" cy="18" r="1.4"/><circle cx="18" cy="18" r="1.4"/></svg>
-          <span class="tab-label">额外功能</span>
-        </button>
+        <button class="tab-btn active" data-tab="macro">宏执行绑定</button>
+        <button class="tab-btn" data-tab="record">录制与化简</button>
+        <button class="tab-btn" data-tab="editor">宏编辑保存</button>
+        <button class="tab-btn" data-tab="params">全局参数</button>
+        <button class="tab-btn" data-tab="console">全局控制台</button>
+        <button class="tab-btn" data-tab="automation">自动化编辑器</button>
       </nav>
 
       <div class="sidebar-foot">
-        <button id="btnStartListeners" class="primary-dim" title="启动后再次点击可关闭全局监听">
-          <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5l12 7-12 7z"/></svg>
-          <span class="btn-label">启动全局宏监听 ○</span>
-        </button>
-        <button id="btnGlobalPause" title="快捷键可在全局参数中配置，默认 F8">
-          <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5v14M15 5v14"/></svg>
-          <span class="btn-label">开启全局暂停 ▶</span>
-        </button>
-        <button id="btnStopAll" class="danger" title="默认快捷键 ESC">
-          <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-          <span class="btn-label">停止全部宏</span>
-        </button>
+        <button id="btnStartListeners" class="primary" title="启动后再次点击可关闭全局监听">启动全局监听</button>
+        <button id="btnGlobalPause" title="快捷键可在全局参数中配置，默认 F8">全局暂停</button>
+        <button id="btnStopAll" class="danger" title="默认快捷键 ESC">停止全部宏</button>
       </div>
     </aside>
 
     <main class="main-panel">
-      <header class="topbar" id="topbar">
-        <button id="btnToggleTopbar" class="topbar-toggle" title="折叠/展开状态栏">−</button>
+      <header class="topbar">
         <div class="status-grid">
           <div class="pill">
             <span class="pill-label">运行实例</span>
@@ -105,14 +53,6 @@
             <span class="pill-label">动作/轨迹</span>
             <strong id="statRecCount">0 / 0</strong>
           </div>
-          <div class="pill">
-            <span class="pill-label">精度档位</span>
-            <strong id="statProfile" title="全局参数 → 执行框架 3.2 → 精度/占用档位">—</strong>
-          </div>
-          <div class="pill">
-            <span class="pill-label">Standby 引擎</span>
-            <strong id="statStandby" title="native 高精度引擎的实际加载状态">—</strong>
-          </div>
         </div>
       </header>
 
@@ -122,7 +62,6 @@
             <h2>全局参数配置</h2>
             <div class="inline-actions">
               <button id="btnReloadParams">刷新参数</button>
-              <button id="btnCheckHotkeyConflicts" title="检测全局快捷键是否互相冲突（同一按键被多处占用会导致部分功能失效）">热键冲突检测</button>
               <button id="btnImportParams">导入参数</button>
               <button id="btnExportParams">导出参数</button>
               <button id="btnResetParams" class="danger">恢复默认参数</button>
@@ -130,7 +69,6 @@
             </div>
           </div>
           <p id="paramsConfigPath" class="hint"></p>
-          <div id="hotkeyConflictResult" class="hotkey-conflict-result" hidden></div>
           <div id="paramsContainer" class="params-container"></div>
           <div class="inline-actions">
             <button id="btnToggleDebugParams">显示未开放参数: 关</button>
@@ -151,8 +89,6 @@
               <button id="btnCreateMacro">新建宏</button>
               <button id="btnDeleteMacro" class="danger">删除宏</button>
               <button id="btnImportFolder">导入宏文件</button>
-              <button id="btnMultiFormatImport">多格式导入</button>
-              <button id="btnExportMacro">导出宏</button>
             </div>
             <ul id="macroList" class="list macro-folder-list"></ul>
           </div>
@@ -297,8 +233,7 @@
       </section>
 
       <section class="tab-page" data-tab-page="editor">
-        <div class="editor-tabbar" id="editorTabBar"></div>
-        <div class="grid-2 grid-main-right" id="editorGrid">
+        <div class="grid-2 grid-main-right">
           <div class="card">
             <h2>文件操作</h2>
             <h3>动作插入器</h3>
@@ -312,12 +247,8 @@
                   <option value="mu">mu</option>
                   <option value="wait">wait</option>
                   <option value="view">view</option>
-                  <option value="move_to">move_to</option>
-                  <option value="scroll">scroll</option>
                   <option value="loop">loop</option>
                   <option value="import">import</option>
-                  <option value="ext">ext（附加指令）</option>
-                  <option value="custom">custom（自定义原文）</option>
                   <option value="note">note</option>
                 </select>
               </div>
@@ -330,167 +261,49 @@
                 <input id="actionArg2" type="text" placeholder="delay/duration(ms)" />
               </div>
             </div>
-            <div id="extArgsArea" class="ext-args-area" hidden></div>
             <div class="inline-actions"> 
-              <button id="btnReloadEditor">重新加载</button>
-              <button id="btnRunFromBreakpoint" title="从测试点运行到下一个测试点：点击动作行号（数字变成浅橘黄底）即设为测试点，再点一次取消。没有下一个测试点则执行到末尾。">测试点运行</button>
-              <button id="btnUpdateAction" style="min-width: 60px;">修改</button>
-              <button id="btnInsertBelow" style="min-width: ·70px;">插入</button>
+              <button id="btnUpdateAction">修改当前</button>
+              <button id="btnInsertBelow">下方插入</button>
               <button id="btnAppendAction">加至末尾</button>
-              <button id="btnDeleteAction" class="danger" style="min-width: 60px;">删除</button>
-              <button id="btnSaveEditor" class="primary" style="min-width: 60px;">保存</button>
-              <button id="btnEditorRecord" style="min-width: 60px;">录制</button>
+              <button id="btnDeleteAction" class="danger">删除选中</button>
+            </div>
+            <div class="inline-actions">
+              <button id="btnSaveEditor" class="primary">保存当前宏</button>
+              <button id="btnReloadEditor">重新加载</button>
             </div>
 
             <hr />
 
-            <details class="editor-file-ops" id="editorFileOps">
-              <summary>文件操作（新建 / 重命名 / 移动 / 删除）</summary>
-              <div class="editor-file-ops-body">
-                <div class="field-row">
-                  <label>目标目录</label>
-                  <input id="editorFolder" type="text" value="宏/录制宏" />
-                </div>
-                <div class="field-row">
-                  <label>新文件名</label>
-                  <input id="editorNewName" type="text" placeholder="新建宏.json" />
-                </div>
-                <div class="inline-actions">
-                  <button id="btnEditorCreate">创建空宏</button>
-                  <button id="btnEditorRename">重命名当前宏</button>
-                  <button id="btnMoveMacro">移动宏</button>
-                  <button id="btnDeleteEditorMacro" class="danger">删除宏</button>
-                  <button id="btnRefreshEditorMacroBrowser">刷新文件夹</button>
-                </div>
-              </div>
-            </details>
-
             <h3>宏文件夹（点击打开，拖动插入 import）</h3>
+            <div class="field-row">
+              <label>目标目录</label>
+              <input id="editorFolder" type="text" value="宏/录制宏" />
+            </div>
+            <div class="field-row">
+              <label>新文件名</label>
+              <input id="editorNewName" type="text" value="新建宏.json" />
+            </div>
+            <div class="inline-actions">
+              <button id="btnEditorCreate">创建空宏</button>
+              <button id="btnEditorRename">重命名当前宏</button>
+              <button id="btnRefreshEditorMacroBrowser">刷新文件夹</button>
+            </div>
+
+            <div class="field-row">
+              <label>重命名新名称</label>
+              <input id="editorRenameName" type="text" placeholder="例如 我的连段.json" />
+            </div>
             <ul id="editorMacroList" class="list compact editor-macro-list"></ul>
           </div>
 
-          <div class="card card-panes">
-            <div class="card-head">
-              <h2>动作编辑小窗（最多 3 个并排）</h2>
+          <div class="card">
+            <h2>可视化动作列表（可拖拽）</h2>
+            <div class="hint-row">
+              <p class="hint">支持 loop 展开/收回、内部动作拖拽重排、拖拽动作进入 loop，双击动作可快速编辑参数。</p>
               <button id="btnBatchComment" class="mini-btn" title="进入批量注释模式后，点击动作可注释，点击可恢复注释可恢复动作">批量注释: 关</button>
             </div>
-            <div class="editor-panes" id="editorPanes"></div>
+            <ul id="actionList" class="list action-list"></ul>
           </div>
-        </div>
-      </section>
-
-      <section class="tab-page" data-tab-page="converter">
-        <div class="grid-2">
-
-          <!-- 左：输入 -->
-          <div class="card">
-            <div class="card-head">
-              <h2>输入宏文本</h2>
-              <button id="btnCvtDetect">检测格式</button>
-            </div>
-            <div class="field-row">
-              <label>源格式</label>
-              <select id="cvtSrcFmt">
-                <option value="auto">自动识别</option>
-                <option value="webui">WebUI JSON（ms）</option>
-                <option value="webui_frame">WebUI 帧数 Nf</option>
-                <option value="razer">Razer Synapse (XML)</option>
-                <option value="logitech">罗技 G HUB (Lua)</option>
-                <option value="ahk">AutoHotkey (AHK)</option>
-                <option value="xmouse">X-Mouse Button Control</option>
-                <option value="generic_json">通用录制 JSON</option>
-                <option value="cstruct">C 数组 (mouse/key)</option>
-              </select>
-            </div>
-            <p id="cvtDetectResult" class="hint"></p>
-            <textarea id="cvtInput" class="cvt-textarea" placeholder="粘贴任意格式的宏文本（Razer XML / AHK / 罗技 Lua / WebUI JSON / 通用 JSON / C 数组…）"></textarea>
-          </div>
-
-          <!-- 右：选项 + 输出 -->
-          <div class="card cvt-right">
-
-            <!-- A: 转为 WebUI 格式 -->
-            <details open class="cvt-section">
-              <summary>转为 WebUI JSON（可直接导入运行）</summary>
-              <div class="field-row double" style="margin-top:8px">
-                <div>
-                  <label>延迟格式</label>
-                  <select id="cvtToWebUIMode">
-                    <option value="webui">标准毫秒（ms）</option>
-                    <option value="webui_frame">帧数计时（Nf）</option>
-                  </select>
-                </div>
-                <div>
-                  <label>帧率 fps（Nf 时有效）</label>
-                  <input id="cvtToWebUIFps" type="number" min="1" max="1000" value="60" />
-                </div>
-              </div>
-              <button id="btnCvtToWebUI" class="primary">转为 WebUI JSON</button>
-            </details>
-
-            <!-- B: 转为外部格式 -->
-            <details class="cvt-section">
-              <summary>转为外部软件格式（Razer / AHK / 罗技 / X-Mouse）</summary>
-              <div class="field-row double" style="margin-top:8px">
-                <div>
-                  <label>目标格式</label>
-                  <select id="cvtDstFmt">
-                    <optgroup label="Razer Synapse">
-                      <option value="razer4">Razer Synapse 4（新版 XML）</option>
-                      <option value="razer3">Razer Synapse 3（旧版 XML）</option>
-                    </optgroup>
-                    <optgroup label="罗技 Lua">
-                      <option value="logitech_ghub">罗技 G HUB（新版 Lua）</option>
-                      <option value="logitech_lgs">罗技 LGS 旧版 Lua</option>
-                    </optgroup>
-                    <optgroup label="AutoHotkey">
-                      <option value="ahk">AutoHotkey v1 (.ahk)</option>
-                      <option value="ahk_v2">AutoHotkey v2 (.ahk)</option>
-                    </optgroup>
-                    <optgroup label="X-Mouse Button Control">
-                      <option value="xmouse">X-Mouse 完整文件 (.xmbcs)</option>
-                      <option value="xmouse_dsl">X-Mouse DSL 字符串（仅按键序列）</option>
-                    </optgroup>
-                  </select>
-                </div>
-                <div>
-                  <label>Nf→ms 帧率</label>
-                  <input id="cvtDstFps" type="number" min="1" max="1000" value="60" />
-                </div>
-              </div>
-              <button id="btnCvtToExternal" class="primary">转为外部格式</button>
-            </details>
-
-            <!-- C: 帧率重采样 -->
-            <details class="cvt-section">
-              <summary>帧率重采样（Nf → 不同帧率 Nf）</summary>
-              <p class="hint" style="margin-top:6px">输入框需为帧数格式（Nf）的 WebUI JSON。将帧同步延迟精确换算至新帧率，不损失帧同步语义。</p>
-              <div class="field-row double">
-                <div>
-                  <label>源帧率 fps</label>
-                  <input id="cvtSrcFps" type="number" min="1" max="1000" value="60" />
-                </div>
-                <div>
-                  <label>目标帧率 fps</label>
-                  <input id="cvtDstFps2" type="number" min="1" max="1000" value="144" />
-                </div>
-              </div>
-              <button id="btnCvtReframe">执行帧率重采样</button>
-            </details>
-
-            <!-- 输出区 -->
-            <div class="card-head" style="margin-top:12px">
-              <h3 style="margin:0">转换结果</h3>
-              <div class="inline-actions">
-                <button id="btnCvtUseAsInput">结果→输入</button>
-                <button id="btnCvtCopy" class="primary">复制</button>
-                <button id="btnCvtDownload">下载</button>
-              </div>
-            </div>
-            <textarea id="cvtOutput" class="cvt-textarea" readonly placeholder="转换结果将显示在这里…"></textarea>
-            <pre id="cvtStatus" class="hint cvt-status"></pre>
-          </div>
-
         </div>
       </section>
 
@@ -499,7 +312,6 @@
           <div class="card-head">
             <h2>Python 端控制台</h2>
             <div class="inline-actions">
-              <button id="btnPopoutConsole" title="在独立窗口中查看日志">弹出窗口</button>
               <button id="btnClearConsole">清空</button>
             </div>
           </div>
@@ -509,57 +321,6 @@
 
       <section class="tab-page" data-tab-page="automation" style="padding:0;height:100%">
         <iframe id="automationFrame" src="automation_editor.html" style="width:100%;height:100%;border:none"></iframe>
-      </section>
-
-      <section class="tab-page" data-tab-page="extra">
-        <div class="card" style="max-width:960px">
-          <div class="card-head">
-            <h2>额外功能</h2>
-          </div>
-          <p class="hint">系统工具 · 环境诊断 · 驱动管理</p>
-
-          <div class="extra-grid" id="extraGrid">
-            <div class="extra-card" data-action="check-env">
-              <i class="fa-solid fa-magnifying-glass"></i>
-              <div><strong>环境检查</strong><span>检查 Python / 依赖 / 驱动状态</span></div>
-            </div>
-            <div class="extra-card" data-action="sys-info">
-              <i class="fa-solid fa-display"></i>
-              <div><strong>系统信息</strong><span>OS · Python · 屏幕信息</span></div>
-            </div>
-            <div class="extra-card" data-action="driver-mgmt">
-              <i class="fa-solid fa-microchip"></i>
-              <div><strong>Interception 驱动</strong><span>安装 · 卸载 · 状态检查</span></div>
-            </div>
-            <div class="extra-card" data-action="restart-admin">
-              <i class="fa-solid fa-rotate-right"></i>
-              <div><strong>管理员重启</strong><span>以管理员权限重新启动</span></div>
-            </div>
-            <div class="extra-card" data-action="features">
-              <i class="fa-solid fa-circle-info"></i>
-              <div><strong>功能一览</strong><span>各模块功能简介</span></div>
-            </div>
-            <div class="extra-card" data-action="shortcuts">
-              <i class="fa-solid fa-keyboard"></i>
-              <div><strong>快捷键速查</strong><span>全局热键 · 编辑器热键</span></div>
-            </div>
-            <div class="extra-card" data-action="copyright">
-              <i class="fa-solid fa-scale-balanced"></i>
-              <div><strong>软件著作</strong><span>版权与许可信息</span></div>
-            </div>
-          </div>
-
-          <div id="extraResult" class="extra-result" style="display:none"></div>
-
-          <div id="driverPanel" class="extra-result" style="display:none">
-            <div class="extra-actions">
-              <button id="btnCheckDriver" class="primary">检查驱动状态</button>
-              <button id="btnInstallDriver">安装 Interception 驱动</button>
-              <button id="btnUninstallDriver" class="danger">卸载 Interception 驱动</button>
-            </div>
-            <div id="driverStatus"></div>
-          </div>
-        </div>
       </section>
     </main>
   </div>

@@ -1,25 +1,21 @@
 import { state } from '../core/state.js';
 import { q } from '../core/dom.js';
-import { parseNumber, parseDelay, pathKey, isRawRow, getRecoverableActionFromNoteText } from './action-model.js';
-import { setSelectedLine, getActionAtPath, getActionAndContainerByPath } from './action-ops.js';
-import { getDefaultForType, getActionFormUi, updateActionFormUiForType, fillActionEditorByAction } from './action-form.js';
+import { parseNumber, pathKey, isLoopAction, getRecoverableActionFromNoteText } from './action-model.js';
+import { setSelectedLine, getActionAtPath } from './action-ops.js';
+import { getDefaultForType, getActionFormUi, updateActionFormUiForType, fillActionEditorByAction, buildActionFromInputs } from './action-form.js';
 import { RECOVERABLE_NOTE_PREFIX } from '../core/constants.js';
-import { apiCall } from '../core/api.js';
 
-export function startInlineEdit(view, path, renderViewList) {
+export function startInlineEdit(path, renderActionList) {
   if (state.batchCommentMode) return;
-  const action = getActionAtPath(view, path);
+  const action = getActionAtPath(path);
   if (!action) return;
-  setSelectedLine(view, path, 'action');
+  setSelectedLine(path, 'action');
   fillActionEditorByAction(action);
-  view.inlineEditingPathKey = pathKey(path);
-  renderViewList(view);
+  state.inlineEditingPathKey = pathKey(path);
+  renderActionList();
 }
 
 export function getInlineEditorValues(action) {
-  if (isRawRow(action)) {
-    return { type: 'custom', arg1: String(action.__raw ?? ''), arg2: '' };
-  }
   const cmd = String(action[0] ?? '').trim().toLowerCase();
   if (cmd === 'view') {
     const vec = Array.isArray(action[1]) ? action[1] : [0, 0];
@@ -30,17 +26,7 @@ export function getInlineEditorValues(action) {
     };
   }
   if (cmd === 'wait') {
-    return { type: cmd, arg1: String(parseDelay(action[1], 50)), arg2: '' };
-  }
-  if (cmd === 'move_to') {
-    return {
-      type: cmd,
-      arg1: `${parseNumber(action[1], 0)},${parseNumber(action[2], 0)}`,
-      arg2: String(Math.max(0, parseNumber(action[3], 150))),
-    };
-  }
-  if (cmd === 'scroll') {
-    return { type: cmd, arg1: String(parseNumber(action[1], 0)), arg2: '' };
+    return { type: cmd, arg1: String(Math.max(0, parseNumber(action[1], 50))), arg2: '' };
   }
   if (cmd === 'loop') {
     return { type: cmd, arg1: String(Math.max(1, parseNumber(action[1], 1))), arg2: '' };
@@ -48,31 +34,19 @@ export function getInlineEditorValues(action) {
   if (cmd === 'import' || cmd === 'note') {
     return { type: cmd, arg1: String(action[1] ?? ''), arg2: '' };
   }
-  if (cmd === 'ext') {
-    const args = Array.isArray(action) ? action.slice(2) : [];
-    return { type: cmd, arg1: String(action[1] ?? ''), arg2: args.length ? JSON.stringify(args) : '' };
-  }
   if (['kd', 'ku', 'md', 'mu'].includes(cmd)) {
     return {
       type: cmd,
       arg1: String(action[1] ?? getDefaultForType(cmd).arg1),
-      arg2: String(parseDelay(action[2], 50)),
+      arg2: String(Math.max(0, parseNumber(action[2], 50))),
     };
   }
-  // 未识别指令 → 以"自定义原文"编辑
-  return { type: 'custom', arg1: JSON.stringify(action), arg2: '' };
+  return { type: cmd, arg1: '', arg2: '' };
 }
 
-export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
-  const { toggleCommentForPath, renderViewList, updateCurrentActionFromEditor } = callbacks;
+export function appendInlineEditorRow(list, line, lineKey, callbacks) {
+  const { toggleCommentForPath, renderActionList, updateCurrentActionFromEditor } = callbacks;
   const action = line.action;
-
-  // 未识别/未解析的原文行：提供原始文本直接编辑（保存时原样写回）
-  if (isRawRow(action)) {
-    appendRawEditorRow(view, list, line, lineKey, { renderViewList });
-    return;
-  }
-
   const values = getInlineEditorValues(action);
   const ui = getActionFormUi(values.type);
 
@@ -95,23 +69,10 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
   const arg1Label = document.createElement('label');
   arg1Label.className = 'inline-edit-label';
   arg1Label.textContent = ui.arg1Label || '参数1';
-  const arg1Options = Array.isArray(ui.arg1Options) && ui.arg1Options.length > 0 ? ui.arg1Options : null;
-  let arg1Input;
-  if (arg1Options) {
-    arg1Input = document.createElement('select');
-    arg1Options.forEach((opt) => {
-      const option = document.createElement('option');
-      option.value = opt;
-      option.textContent = opt;
-      arg1Input.appendChild(option);
-    });
-    arg1Input.value = arg1Options.includes(values.arg1) ? values.arg1 : arg1Options[0];
-  } else {
-    arg1Input = document.createElement('input');
-    arg1Input.type = 'text';
-    arg1Input.value = values.arg1;
-    arg1Input.placeholder = ui.arg1Placeholder || '';
-  }
+  const arg1Input = document.createElement('input');
+  arg1Input.type = 'text';
+  arg1Input.value = values.arg1;
+  arg1Input.placeholder = ui.arg1Placeholder || '';
   arg1Wrap.appendChild(arg1Label);
   arg1Wrap.appendChild(arg1Input);
   row1.appendChild(arg1Wrap);
@@ -142,51 +103,6 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
 
   const currentCmd = String(action[0] ?? '').trim().toLowerCase();
   const recoverable = currentCmd === 'note' ? getRecoverableActionFromNoteText(action[1], RECOVERABLE_NOTE_PREFIX) : null;
-
-  let btnExpand = null;
-  let expandConfirmed = false;
-  if (currentCmd === 'import') {
-    btnExpand = document.createElement('button');
-    btnExpand.type = 'button';
-    btnExpand.className = 'inline-edit-btn';
-    btnExpand.style.background = 'rgba(255, 190, 85, 0.75)';
-    btnExpand.style.color = '#1a2d3e';
-    btnExpand.textContent = '展开动作';
-    actions.appendChild(btnExpand);
-
-    btnExpand.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!expandConfirmed) {
-        expandConfirmed = true;
-        btnExpand.textContent = '确认展开';
-        btnExpand.style.background = 'rgba(230, 126, 34, 0.85)';
-        return;
-      }
-      const macroPath = arg1Input.value.trim();
-      if (!macroPath) return;
-      try {
-        const data = await apiCall('read_macro', macroPath);
-        const importedRows = Array.isArray(data?.rows) ? data.rows : [];
-        if (importedRows.length === 0) {
-          alert('子宏内容为空');
-          return;
-        }
-        const expandedActions = [
-          ['note', `展开自: ${macroPath}`],
-          ...importedRows,
-          ['note', '组件结尾'],
-        ];
-        if (typeof callbacks.expandImportAction === 'function') {
-          callbacks.expandImportAction(view, line.path, expandedActions);
-        }
-        view.inlineEditingPathKey = null;
-        renderViewList(view);
-      } catch (err) {
-        alert(`展开失败: ${err.message}`);
-      }
-    });
-  }
-
   if (currentCmd !== 'note' || recoverable) {
     const btnToggle = document.createElement('button');
     btnToggle.type = 'button';
@@ -196,8 +112,10 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
 
     btnToggle.addEventListener('click', (e) => {
       e.stopPropagation();
-      const ok = toggleCommentForPath(view, line.path, { silent: false });
-      if (ok) renderViewList(view);
+      const ok = toggleCommentForPath(line.path, { silent: false });
+      if (ok) {
+        renderActionList();
+      }
     });
   }
 
@@ -209,17 +127,21 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
     updateActionFormUiForType(values.type);
     q('#actionArg1').value = arg1Input.value;
     q('#actionArg2').value = arg2Input ? arg2Input.value : '';
-    setSelectedLine(view, line.path, 'action');
-    if (typeof state.onFocusView === 'function') state.onFocusView(view);
+    setSelectedLine(line.path, 'action');
   };
 
-  arg1Input.addEventListener('input', () => { applyToMainForm(); });
-  if (arg2Input) arg2Input.addEventListener('input', () => { applyToMainForm(); });
+  arg1Input.addEventListener('input', () => {
+    applyToMainForm();
+  });
+  if (arg2Input) {
+    arg2Input.addEventListener('input', () => {
+      applyToMainForm();
+    });
+  }
 
   const keepEditing = () => {
-    view.inlineEditingPathKey = lineKey;
-    setSelectedLine(view, line.path, 'action');
-    if (typeof state.onFocusView === 'function') state.onFocusView(view);
+    state.inlineEditingPathKey = lineKey;
+    setSelectedLine(line.path, 'action');
   };
 
   arg1Input.addEventListener('focus', keepEditing);
@@ -228,67 +150,15 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
   btnApply.addEventListener('click', (e) => {
     e.stopPropagation();
     applyToMainForm();
-    updateCurrentActionFromEditor({ silent: true, view });
-    view.inlineEditingPathKey = lineKey;
-    renderViewList(view);
+    updateCurrentActionFromEditor({ silent: true });
+    state.inlineEditingPathKey = lineKey;
+    renderActionList();
   });
 
-  editorLi.addEventListener('click', (e) => { e.stopPropagation(); keepEditing(); });
-
-  editorLi.appendChild(idxStub);
-  editorLi.appendChild(body);
-  list.appendChild(editorLi);
-}
-
-// 未识别行的原始文本编辑器
-function appendRawEditorRow(view, list, line, lineKey, { renderViewList }) {
-  const editorLi = document.createElement('li');
-  editorLi.className = 'action-inline-editor action-inline-editor-raw';
-  editorLi.dataset.inlineEditorFor = lineKey;
-
-  const idxStub = document.createElement('span');
-  idxStub.className = 'action-index';
-  idxStub.textContent = '';
-
-  const body = document.createElement('div');
-  body.className = 'action-inline-editor-body';
-
-  const hint = document.createElement('div');
-  hint.className = 'inline-edit-label';
-  hint.textContent = '未识别的行 · 可直接编辑原始内容（保存时原样写回，不会被丢弃）';
-  body.appendChild(hint);
-
-  const ta = document.createElement('textarea');
-  ta.className = 'raw-line-editor';
-  ta.rows = 3;
-  ta.value = String(line.action.__raw ?? '');
-  body.appendChild(ta);
-
-  const actions = document.createElement('div');
-  actions.className = 'inline-actions inline-edit-actions';
-
-  const btnApply = document.createElement('button');
-  btnApply.type = 'button';
-  btnApply.className = 'primary inline-edit-btn';
-  btnApply.textContent = '应用修改';
-  btnApply.addEventListener('click', (e) => {
+  editorLi.addEventListener('click', (e) => {
     e.stopPropagation();
-    const found = getActionAndContainerByPath(view, line.path);
-    if (found) {
-      found.container[found.index] = { __raw: ta.value };
-    }
-    view.inlineEditingPathKey = null;
-    renderViewList(view);
+    keepEditing();
   });
-  actions.appendChild(btnApply);
-  body.appendChild(actions);
-
-  const keepEditing = () => {
-    view.inlineEditingPathKey = lineKey;
-    setSelectedLine(view, line.path, 'action');
-    if (typeof state.onFocusView === 'function') state.onFocusView(view);
-  };
-  editorLi.addEventListener('click', (e) => { e.stopPropagation(); keepEditing(); });
 
   editorLi.appendChild(idxStub);
   editorLi.appendChild(body);

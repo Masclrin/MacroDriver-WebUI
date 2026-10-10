@@ -13,20 +13,6 @@ function parseNumber(text, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// 帧延迟辅助：识别 "Nf" 格式（如 "2f"、"10F"），其余当 ms 数字处理
-function isFrameDelay(raw) {
-  return typeof raw === 'string' && /^\d+f$/i.test(raw.trim());
-}
-function parseDelay(raw, fallback = 50) {
-  if (isFrameDelay(raw)) return raw.trim().toLowerCase();
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
-function formatDelay(delay) {
-  if (isFrameDelay(delay)) return `${delay.trim().toLowerCase()}帧`;
-  return `${Math.max(0, Number(delay) || 0)}ms`;
-}
-
 function pathKey(path) {
   return Array.isArray(path) ? path.join('.') : '';
 }
@@ -91,7 +77,7 @@ function normalizeAction(action) {
   }
 
   if (cmd === 'wait') {
-    return ['wait', parseDelay(action[1], 50)];
+    return ['wait', Math.max(0, parseNumber(action[1], 50))];
   }
 
   if (cmd === 'import') {
@@ -104,7 +90,7 @@ function normalizeAction(action) {
 
   if (['kd', 'ku', 'md', 'mu'].includes(cmd)) {
     const fallbackKey = cmd === 'md' || cmd === 'mu' ? 'left' : 'w';
-    return [cmd, String(action[1] ?? fallbackKey), parseDelay(action[2], 50)];
+    return [cmd, String(action[1] ?? fallbackKey), Math.max(0, parseNumber(action[2], 50))];
   }
 
   return cloneAction(action);
@@ -218,22 +204,6 @@ function updateActionFormUiForType(type) {
   }
 }
 
-const ACTION_TYPE_GROUPS = { kd: 'key', ku: 'key', md: 'mouse', mu: 'mouse' };
-
-function switchActionType(newType) {
-  const prevType = state._lastActionTypeGroupKey;
-  const newGroup = ACTION_TYPE_GROUPS[newType];
-  const prevGroup = ACTION_TYPE_GROUPS[prevType];
-
-  if (newGroup && prevGroup && newGroup === prevGroup) {
-    updateActionFormUiForType(newType);
-  } else {
-    ensureActionFormDefaultsForType(newType, true);
-  }
-
-  state._lastActionTypeGroupKey = newType;
-}
-
 function ensureActionFormDefaultsForType(type, force = false) {
   const defaults = getDefaultForType(type);
   const arg1 = q('#actionArg1');
@@ -241,7 +211,6 @@ function ensureActionFormDefaultsForType(type, force = false) {
   updateActionFormUiForType(type);
   if (force || !arg1.value.trim()) arg1.value = defaults.arg1;
   if (force || !arg2.value.trim()) arg2.value = defaults.arg2;
-  state._lastActionTypeGroupKey = type;
 }
 
 function fillActionEditorByAction(action) {
@@ -249,7 +218,6 @@ function fillActionEditorByAction(action) {
   const type = String(action[0]).trim().toLowerCase();
   q('#actionType').value = type;
   updateActionFormUiForType(type);
-  state._lastActionTypeGroupKey = type;
 
   if (type === 'wait') {
     q('#actionArg1').value = String(action[1] ?? 50);
@@ -298,7 +266,8 @@ function buildActionFromInputs(options = {}) {
   const arg2 = q('#actionArg2').value.trim();
 
   if (type === 'wait') {
-    return ['wait', parseDelay(arg1 || '50', 50)];
+    const ms = Math.max(0, parseNumber(arg1 || '50', 50));
+    return ['wait', ms];
   }
 
   if (type === 'view') {
@@ -328,7 +297,7 @@ function buildActionFromInputs(options = {}) {
   if (['kd', 'ku', 'md', 'mu'].includes(type)) {
     const fallbackKey = getDefaultForType(type).arg1;
     const key = arg1 || fallbackKey;
-    const delay = parseDelay(arg2 || '50', 50);
+    const delay = Math.max(0, parseNumber(arg2 || '50', 50));
     return [type, key, delay];
   }
 
@@ -501,7 +470,7 @@ function formatActionLabel(action, expanded) {
       : `loop x${count}（收起，共${block.length} 条）`;
   }
   if (['kd', 'ku', 'md', 'mu'].includes(cmd)) {
-    return `${cmd} '${String(action[1] ?? '')}' ${formatDelay(action[2])}`;
+    return `${cmd} '${String(action[1] ?? '')}' ${Math.max(0, parseNumber(action[2], 50))}ms`;
   }
 
   return JSON.stringify(action);
@@ -582,7 +551,7 @@ function getInlineEditorValues(action) {
     return {
       type: cmd,
       arg1: String(action[1] ?? getDefaultForType(cmd).arg1),
-      arg2: String(parseDelay(action[2], 50)),
+      arg2: String(Math.max(0, parseNumber(action[2], 50))),
     };
   }
   return { type: cmd, arg1: '', arg2: '' };
@@ -955,7 +924,7 @@ export function bindEditorActions() {
   });
 
   q('#actionType').addEventListener('change', () => {
-    switchActionType(q('#actionType').value);
+    ensureActionFormDefaultsForType(q('#actionType').value, true);
   });
 
   q('#btnInsertBelow').addEventListener('click', () => {
@@ -963,6 +932,7 @@ export function bindEditorActions() {
       const row = buildActionFromInputs();
       const target = resolveInsertTargetAfterSelection();
       insertActionAtTarget(row, target);
+      state.inlineEditingPathKey = pathKey(state.selectedActionPath);
       renderActionList();
     } catch (err) {
       showToast(err.message);
@@ -973,6 +943,7 @@ export function bindEditorActions() {
     try {
       const row = buildActionFromInputs();
       insertActionAtTarget(row, { type: 'root', index: state.editorRows.length });
+      state.inlineEditingPathKey = pathKey(state.selectedActionPath);
       renderActionList();
     } catch (err) {
       showToast(err.message);

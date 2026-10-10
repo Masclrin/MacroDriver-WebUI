@@ -7,17 +7,17 @@ import { fillActionEditorByAction } from './action-form.js';
 
 export { getRecoverableActionFromNoteText, makeRecoverableNoteFromAction } from './action-model.js';
 
-export function toggleCommentForPath(view, path, options = {}) {
+export function toggleCommentForPath(path, options = {}) {
   const silent = Boolean(options.silent);
   const shouldKeepInlineEditor = !state.batchCommentMode;
-  const info = getActionAndContainerByPath(view, path);
+  const info = getActionAndContainerByPath(path);
   if (!info) {
     if (!silent) showToast('动作已失效，请重新选择');
     return false;
   }
 
   const current = info.action;
-  const cmd = String((Array.isArray(current) && current[0]) ?? '').trim().toLowerCase();
+  const cmd = String(current[0] ?? '').trim().toLowerCase();
 
   if (cmd === 'note') {
     const restored = getRecoverableActionFromNoteText(current[1], RECOVERABLE_NOTE_PREFIX);
@@ -26,9 +26,9 @@ export function toggleCommentForPath(view, path, options = {}) {
       return false;
     }
     info.container[info.index] = restored;
-    setSelectedLine(view, path, 'action');
+    setSelectedLine(path, 'action');
     fillActionEditorByAction(restored);
-    view.inlineEditingPathKey = shouldKeepInlineEditor ? pathKey(path) : null;
+    state.inlineEditingPathKey = shouldKeepInlineEditor ? pathKey(path) : null;
     if (!silent) showToast('已恢复动作');
     return true;
   }
@@ -36,11 +36,11 @@ export function toggleCommentForPath(view, path, options = {}) {
   const fromLoop = isLoopAction(current);
   info.container[info.index] = makeRecoverableNoteFromAction(current, RECOVERABLE_NOTE_PREFIX);
   if (fromLoop) {
-    clearExpandedLoopKeysByPrefix(view, path);
+    clearExpandedLoopKeysByPrefix(path);
   }
-  setSelectedLine(view, path, 'action');
+  setSelectedLine(path, 'action');
   fillActionEditorByAction(info.container[info.index]);
-  view.inlineEditingPathKey = shouldKeepInlineEditor ? pathKey(path) : null;
+  state.inlineEditingPathKey = shouldKeepInlineEditor ? pathKey(path) : null;
   if (!silent) showToast('已注释当前动作');
   return true;
 }

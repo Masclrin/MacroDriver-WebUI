@@ -1,28 +1,12 @@
 # -*- coding: utf-8 -*-
+"""
+颜色检测模块 — numpy 实现
+"""
 import numpy as np
-import cv2
 
 
 def check_color(image, target, tolerance, mode="contain", sample="center",
-                last_image=None, change_threshold=10, area_ratio_threshold=0.5):
-    if mode == "area":
-        b, g, r = int(target[0]), int(target[1]), int(target[2])
-        lower = np.array([max(0, b - tolerance), max(0, g - tolerance), max(0, r - tolerance)], dtype=np.uint8)
-        upper = np.array([min(255, b + tolerance), min(255, g + tolerance), min(255, r + tolerance)], dtype=np.uint8)
-        mask = cv2.inRange(image, lower, upper)
-        matching = cv2.countNonZero(mask)
-        total_pixels = image.shape[0] * image.shape[1]
-        ratio = matching / total_pixels if total_pixels > 0 else 0.0
-        found = ratio >= area_ratio_threshold
-        if matching > 0:
-            mean_color = cv2.mean(image, mask)[:3]
-            actual_hex = "#{:02X}{:02X}{:02X}".format(
-                int(mean_color[2]), int(mean_color[1]), int(mean_color[0])
-            )
-        else:
-            actual_hex = "#{:02X}{:02X}{:02X}".format(r, g, b)
-        return {"found": bool(found), "actual_color": actual_hex, "diff": float(ratio)}
-
+                last_image=None, change_threshold=10):
     if mode == "change":
         if last_image is None:
             return {"found": False, "actual_color": "#000000", "diff": 0.0}
