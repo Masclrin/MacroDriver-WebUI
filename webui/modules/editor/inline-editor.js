@@ -5,6 +5,7 @@ import { setSelectedLine, getActionAtPath, getActionAndContainerByPath } from '.
 import { getDefaultForType, getActionFormUi, updateActionFormUiForType, fillActionEditorByAction } from './action-form.js';
 import { RECOVERABLE_NOTE_PREFIX } from '../core/constants.js';
 import { apiCall } from '../core/api.js';
+import { updateBpVisual } from './bp-visual.js';
 
 export function startInlineEdit(view, path, renderViewList) {
   if (state.batchCommentMode) return;
@@ -199,6 +200,35 @@ export function appendInlineEditorRow(view, list, line, lineKey, callbacks) {
       const ok = toggleCommentForPath(view, line.path, { silent: false });
       if (ok) renderViewList(view);
     });
+  }
+
+  // 测试点开关：仅顶层动作行可设（与行号点击等价，这里给一个显式入口）
+  if (line.depth === 0) {
+    const btnBp = document.createElement('button');
+    btnBp.type = 'button';
+    btnBp.className = 'inline-edit-btn inline-edit-bp';
+
+    const syncBpBtn = () => {
+      const on = !!(view.breakpoints && view.breakpoints.has(lineKey));
+      btnBp.textContent = on ? '● 取消测试点' : '○ 设为测试点';
+      btnBp.classList.toggle('on', on);
+      btnBp.title = on
+        ? '取消后本行不再作为测试点运行区间起点'
+        : '设为测试点后，可用「测试点运行」从本行跑到下一个测试点';
+    };
+    syncBpBtn();
+
+    btnBp.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!view.breakpoints) view.breakpoints = new Set();
+      if (view.breakpoints.has(lineKey)) view.breakpoints.delete(lineKey);
+      else view.breakpoints.add(lineKey);
+      syncBpBtn();
+      updateBpVisual(view);
+      const tab = typeof state.tabOfView === 'function' ? state.tabOfView(view) : null;
+      if (tab) tab.dirty = false; // 测试点不写入文件，不影响脏标记
+    });
+    actions.appendChild(btnBp);
   }
 
   body.appendChild(row1);

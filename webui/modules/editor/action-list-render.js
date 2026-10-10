@@ -147,25 +147,21 @@ export function renderViewList(view) {
 
     map.set(`${lineKey}:${line.kind}`, line);
 
-    // 测试点标记（仅顶层动作行可设）
-    const bp = document.createElement('button');
-    bp.type = 'button';
-    bp.className = 'action-bp';
-    if (line.kind === 'action' && line.depth === 0) {
-      const on = !!(view.breakpoints && view.breakpoints.has(lineKey));
-      bp.classList.toggle('on', on);
-      bp.textContent = on ? '●' : '○';
-      bp.title = on ? '取消测试点' : '设为测试点（可从测试点运行到此测试点）';
-      bp.dataset.bpPath = lineKey;
-    } else {
-      bp.classList.add('ghost');
-      bp.disabled = true;
-      bp.tabIndex = -1;
-    }
-
+    // 行号即"测试点开关"（仅顶层动作行可设）：
+    //   已是测试点 → 数字背景高亮；非测试点 → 保持普通行号外观。
+    // 不再单独占用一列按钮，默认也不显示 ○/● 噪声。
     const idxEl = document.createElement('span');
     idxEl.className = 'action-index';
     idxEl.textContent = String(lineIndex + 1);
+    if (line.kind === 'action' && line.depth === 0) {
+      const on = !!(view.breakpoints && view.breakpoints.has(lineKey));
+      idxEl.classList.add('bp-toggle');
+      idxEl.classList.toggle('on', on);
+      idxEl.title = on
+        ? `第 ${lineIndex + 1} 行已是测试点 —— 点击取消`
+        : `把第 ${lineIndex + 1} 行设为测试点（可从测试点运行到此）`;
+      idxEl.dataset.bpPath = lineKey;
+    }
 
     const textWrap = document.createElement('span');
     textWrap.className = 'action-text';
@@ -190,7 +186,6 @@ export function renderViewList(view) {
       textWrap.appendChild(document.createTextNode(formatActionLabel(line.action, false)));
     }
 
-    li.appendChild(bp);
     li.appendChild(idxEl);
     li.appendChild(textWrap);
     frag.appendChild(li);
@@ -238,17 +233,8 @@ export function updateSelectionHighlight(view) {
   });
 }
 
-// 就地更新"测试点"标记（不重建列表）
-export function updateBpVisual(view) {
-  const list = view && view.listEl;
-  if (!list) return;
-  list.querySelectorAll('.action-bp[data-bp-path]').forEach((btn) => {
-    const on = !!(view.breakpoints && view.breakpoints.has(btn.dataset.bpPath));
-    btn.classList.toggle('on', on);
-    btn.textContent = on ? '●' : '○';
-    btn.title = on ? '取消测试点' : '设为测试点（可从测试点运行到此测试点）';
-  });
-}
+// 就地更新"测试点"标记（不重建列表）—— 实现在 bp-visual.js，此处再导出以兼容旧调用
+export { updateBpVisual } from './bp-visual.js';
 
 // 就地收起内联编辑器（不重建列表）
 function removeInlineEditorInPlace(view) {
@@ -278,10 +264,11 @@ export function initPaneContainerEvents(container, resolveView) {
     const list = view.listEl;
     const tel = elFrom(e.target);
 
-    const bpBtn = tel && tel.closest('.action-bp');
-    if (bpBtn && !bpBtn.disabled && bpBtn.dataset.bpPath) {
+    // 行号 = 测试点开关（点击切换，不再单独占一列按钮）
+    const bpEl = tel && tel.closest('.action-index.bp-toggle');
+    if (bpEl && bpEl.dataset.bpPath) {
       if (!view.breakpoints) view.breakpoints = new Set();
-      const k = bpBtn.dataset.bpPath;
+      const k = bpEl.dataset.bpPath;
       if (view.breakpoints.has(k)) view.breakpoints.delete(k);
       else view.breakpoints.add(k);
       updateBpVisual(view);

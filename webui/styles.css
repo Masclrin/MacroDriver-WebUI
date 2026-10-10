@@ -1165,49 +1165,47 @@ button.active-glow {
 
 .action-list li {
   display: grid;
-  grid-template-columns: 18px 30px minmax(0, 1fr);
+  grid-template-columns: 30px minmax(0, 1fr);
   gap: 5px;
   align-items: center;
   padding: 3px 7px;
   min-height: 24px;
 }
 
-/* 内联编辑器行仍是 2 列（原样式里它是独立规则，但被 .action-list li 覆盖过，这里显式恢复） */
+/* 内联编辑器行同样是 2 列 */
 .action-list li.action-inline-editor {
   grid-template-columns: 30px minmax(0, 1fr);
 }
 
-/* 测试点标记：默认隐藏，行 hover / 选中时才显现，避免每行都是 ○ 的噪声 */
-.action-bp {
-  flex-shrink: 0;
-  width: 16px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: transparent;
+/* 测试点：由「行号」承担开关职责。
+   未标记时是普通行号；标记后数字背景高亮，一眼可见哪些行是测试点。 */
+.action-index.bp-toggle {
   cursor: pointer;
-  font-size: 10px;
-  line-height: 1;
-  border-radius: 4px;
-  transition: color 120ms ease;
+  min-width: 22px;
+  padding: 1px 0;
+  border-radius: 6px;
+  text-align: center;
+  user-select: none;
+  transition: background 120ms ease, color 120ms ease;
 }
 
-.action-list li:hover .action-bp,
-.action-list li.active .action-bp {
-  color: rgba(150, 180, 205, 0.6);
+.action-list li:hover .action-index.bp-toggle {
+  background: rgba(150, 180, 205, 0.22);
 }
 
-.action-bp:hover {
-  color: var(--warn);
+.action-index.bp-toggle:hover {
+  background: rgba(255, 190, 85, 0.35);
+  color: var(--text, #1a2d3e);
 }
 
-.action-bp.on {
-  color: var(--warn);
+.action-index.bp-toggle.on {
+  background: var(--warn);
+  color: #1a2d3e;
+  font-weight: 700;
 }
 
-.action-bp.ghost {
-  visibility: hidden;
-  pointer-events: none;
+.action-index.bp-toggle.on:hover {
+  background: #ffcf7a;
 }
 
 .action-list {

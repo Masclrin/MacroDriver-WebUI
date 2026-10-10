@@ -492,7 +492,7 @@ async function runFromBreakpoint() {
     .map((k) => parseInt(String(k).split('.')[0], 10))
     .filter((n) => Number.isInteger(n) && n >= 0)
     .sort((a, b) => a - b);
-  if (!bps.length) return showToast('请先在动作行左侧点出测试点（●）');
+  if (!bps.length) return showToast('请先点击动作行号（或双击行内的「设为测试点」）设置测试点');
 
   const sel = Array.isArray(view.selectedActionPath) && view.selectedActionPath.length
     ? view.selectedActionPath[0]
@@ -1025,6 +1025,17 @@ export function previewOps(op) {
       if (!v.breakpoints) v.breakpoints = new Set();
       v.breakpoints.add('0');
       if (v.rows.length > 4) v.breakpoints.add('4');
+      renderViewList(v);
+    }
+    return;
+  }
+  if (op === 'bp-inline') {
+    // 打开第 3 行的双击内联编辑面板（用于自检测试点开关按钮的呈现）
+    previewOps('bp');
+    const v = state.editorViews[0] || getFocusedView();
+    if (v && v.rows && v.rows.length > 2) {
+      if (v.breakpoints) v.breakpoints.add('2');
+      v.inlineEditingPathKey = '2';
       renderViewList(v);
     }
     return;
